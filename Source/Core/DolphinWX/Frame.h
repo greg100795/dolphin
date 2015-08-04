@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -9,18 +9,10 @@
 #include <string>
 #include <vector>
 #include <wx/bitmap.h>
-#include <wx/chartype.h>
-#include <wx/defs.h>
-#include <wx/event.h>
 #include <wx/frame.h>
-#include <wx/gdicmn.h>
 #include <wx/image.h>
-#include <wx/mstream.h>
 #include <wx/panel.h>
-#include <wx/string.h>
 #include <wx/timer.h>
-#include <wx/toplevel.h>
-#include <wx/windowid.h>
 
 #include "Common/CommonTypes.h"
 #include "Common/Event.h"
@@ -48,7 +40,6 @@ class wxAuiNotebook;
 class wxAuiNotebookEvent;
 class wxListEvent;
 class wxMenuItem;
-class wxWindow;
 
 class CRenderFrame : public wxFrame
 {
@@ -129,7 +120,7 @@ public:
 	void UpdateTitle(const std::string &str);
 
 	const CGameListCtrl *GetGameListCtrl() const;
-	virtual wxMenuBar* GetMenuBar() const override;
+	wxMenuBar* GetMenuBar() const override;
 
 #ifdef __WXGTK__
 	Common::Event panic_event;
@@ -315,7 +306,6 @@ private:
 	void OnConfigAudio(wxCommandEvent& event);
 	void OnConfigControllers(wxCommandEvent& event);
 	void OnConfigHotkey(wxCommandEvent& event);
-	void OnConfigMenuCommands(wxCommandEvent& event);
 
 	void OnToggleFullscreen(wxCommandEvent& event);
 	void OnToggleDualCore(wxCommandEvent& event);
@@ -330,8 +320,6 @@ private:
 	void OnToggleWindow(wxCommandEvent& event);
 
 	void OnKeyDown(wxKeyEvent& event); // Keyboard
-	void OnKeyUp(wxKeyEvent& event);
-
 	void OnMouse(wxMouseEvent& event); // Mouse
 
 	void OnFocusChange(wxFocusEvent& event);
@@ -361,7 +349,7 @@ private:
 	void OnLoadCurrentSlot(wxCommandEvent& event);
 
 	void PollHotkeys(wxTimerEvent&);
-	void ParseHotkeys(wxKeyEvent &event);
+	void ParseHotkeys();
 
 	bool InitControllers();
 

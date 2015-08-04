@@ -1,5 +1,5 @@
 // Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <sstream>
@@ -785,6 +785,12 @@ PFNGLENDOCCLUSIONQUERYNVPROC glEndOcclusionQueryNV;
 PFNGLGETOCCLUSIONQUERYIVNVPROC glGetOcclusionQueryivNV;
 PFNGLGETOCCLUSIONQUERYUIVNVPROC glGetOcclusionQueryuivNV;
 
+// ARB_clip_control
+PFNGLCLIPCONTROLPROC glClipControl;
+
+// ARB_copy_image
+PFNGLCOPYIMAGESUBDATAPROC glCopyImageSubData;
+
 // Creates a GLFunc object that requires a feature
 #define GLFUNC_REQUIRES(x, y) { (void**)&x, #x, y }
 // Creates a GLFunc object with a different function suffix
@@ -1271,6 +1277,21 @@ const GLFunc gl_function_array[] =
 	GLFUNC_REQUIRES(glEndOcclusionQueryNV,      "GL_NV_occlusion_query_samples"),
 	GLFUNC_REQUIRES(glGetOcclusionQueryivNV,    "GL_NV_occlusion_query_samples"),
 	GLFUNC_REQUIRES(glGetOcclusionQueryuivNV,   "GL_NV_occlusion_query_samples"),
+
+	// ARB_clip_control
+	GLFUNC_REQUIRES(glClipControl, "GL_ARB_clip_control"),
+
+	// ARB_copy_image
+	GLFUNC_REQUIRES(glCopyImageSubData, "GL_ARB_copy_image"),
+
+	// NV_copy_image
+	GLFUNC_SUFFIX(glCopyImageSubData, NV, "GL_NV_copy_image !GL_ARB_copy_image"),
+
+	// OES_copy_image
+	GLFUNC_SUFFIX(glCopyImageSubData, OES, "GL_OES_copy_image"),
+
+	// EXT_copy_image
+	GLFUNC_SUFFIX(glCopyImageSubData, EXT, "GL_EXT_copy_image !GL_OES_copy_image"),
 
 	// gl_1_1
 	// OpenGL 1.1 is at the end due to a bug in Android's EGL stack.
@@ -1902,7 +1923,7 @@ namespace GLExtensions
 			_GLVersion = 330; // Get all the fun things
 	}
 
-	static void* GetFuncAddress(std::string name, void **func)
+	static void* GetFuncAddress(const std::string& name, void **func)
 	{
 		*func = GLInterface->GetFuncAddress(name);
 		if (*func == nullptr)
@@ -1963,7 +1984,7 @@ namespace GLExtensions
 		while (buffer >> tmp)
 		{
 			if (tmp[0] == '!')
-				result &= !m_extension_list[tmp.erase(0)];
+				result &= !m_extension_list[tmp.erase(0, 1)];
 			else
 				result &= m_extension_list[tmp];
 		}

@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2011 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -7,13 +7,7 @@
 #include <wx/bitmap.h>
 #include <wx/dcmemory.h>
 #include <wx/dialog.h>
-#include <wx/event.h>
-#include <wx/gdicmn.h>
 #include <wx/sizer.h>
-#include <wx/string.h>
-#include <wx/toplevel.h>
-#include <wx/translation.h>
-#include <wx/windowid.h>
 
 #include "Common/CommonTypes.h"
 #include "Core/HW/WiimoteEmu/WiimoteEmu.h"
@@ -23,7 +17,6 @@ class wxCheckBox;
 class wxSlider;
 class wxStaticBitmap;
 class wxTextCtrl;
-class wxWindow;
 
 class TASInputDlg : public wxDialog
 {

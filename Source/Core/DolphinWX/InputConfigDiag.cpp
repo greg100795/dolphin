@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2010 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <algorithm>
@@ -10,20 +10,15 @@
 #include <string>
 #include <vector>
 #include <wx/app.h>
-#include <wx/arrstr.h>
 #include <wx/bitmap.h>
 #include <wx/button.h>
-#include <wx/chartype.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/combobox.h>
 #include <wx/control.h>
 #include <wx/dcmemory.h>
-#include <wx/defs.h>
 #include <wx/dialog.h>
-#include <wx/event.h>
 #include <wx/font.h>
-#include <wx/gdicmn.h>
 #include <wx/listbox.h>
 #include <wx/msgdlg.h>
 #include <wx/notebook.h>
@@ -33,12 +28,8 @@
 #include <wx/spinctrl.h>
 #include <wx/statbmp.h>
 #include <wx/stattext.h>
-#include <wx/string.h>
 #include <wx/textctrl.h>
 #include <wx/timer.h>
-#include <wx/toplevel.h>
-#include <wx/translation.h>
-#include <wx/unichar.h>
 
 #include "Common/FileSearch.h"
 #include "Common/FileUtil.h"
@@ -181,18 +172,14 @@ void InputConfigDialog::UpdateProfileComboBox()
 	pname += PROFILES_PATH;
 	pname += m_config.profile_name;
 
-	CFileSearch::XStringVector exts;
-	exts.push_back("*.ini");
-	CFileSearch::XStringVector dirs;
-	dirs.push_back(pname);
-	CFileSearch cfs(exts, dirs);
-	const CFileSearch::XStringVector& sv = cfs.GetFileNames();
+	std::vector<std::string> sv = DoFileSearch({"*.ini"}, {pname});
 
 	wxArrayString strs;
-	for (auto si = sv.cbegin(); si != sv.cend(); ++si)
+	for (const std::string& filename : sv)
 	{
-		std::string str(si->begin() + si->find_last_of('/') + 1 , si->end() - 4) ;
-		strs.push_back(StrToWxStr(str));
+		std::string base;
+		SplitPath(filename, nullptr, &base, nullptr);
+		strs.push_back(StrToWxStr(base));
 	}
 
 	for (GamepadPage* page : m_padpages)
@@ -214,6 +201,11 @@ void InputConfigDialog::ClickSave(wxCommandEvent& event)
 {
 	m_config.SaveConfig();
 	event.Skip();
+}
+
+int ControlDialog::GetRangeSliderValue() const
+{
+	return range_slider->GetValue();
 }
 
 void ControlDialog::UpdateListContents()
@@ -467,7 +459,7 @@ void GamepadPage::AdjustSettingUI(wxCommandEvent& event)
 
 void GamepadPage::AdjustControlOption(wxCommandEvent&)
 {
-	m_control_dialog->control_reference->range = (ControlState)(m_control_dialog->range_slider->GetValue()) / SLIDER_TICK_COUNT;
+	m_control_dialog->control_reference->range = (ControlState)(m_control_dialog->GetRangeSliderValue()) / SLIDER_TICK_COUNT;
 }
 
 void GamepadPage::ConfigControl(wxEvent& event)

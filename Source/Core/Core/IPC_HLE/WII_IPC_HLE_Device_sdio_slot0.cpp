@@ -1,8 +1,10 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "Common/ChunkFile.h"
 #include "Common/CommonTypes.h"
+#include "Common/FileUtil.h"
 #include "Common/SDCardUtil.h"
 
 #include "Core/ConfigManager.h"
@@ -59,7 +61,7 @@ void CWII_IPC_HLE_Device_sdio_slot0::EventNotify()
 
 void CWII_IPC_HLE_Device_sdio_slot0::OpenInternal()
 {
-	const std::string filename = File::GetUserPath(D_WIIUSER_IDX) + "sd.raw";
+	const std::string filename = File::GetUserPath(D_WIIROOT_IDX) + "/sd.raw";
 	m_Card.Open(filename, "r+b");
 	if (!m_Card)
 	{

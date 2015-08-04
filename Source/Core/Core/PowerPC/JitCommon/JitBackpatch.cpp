@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cinttypes>
@@ -77,7 +77,7 @@ bool Jitx86Base::BackPatch(u32 emAddress, SContext* ctx)
 	BitSet32 registersInUse = it->second;
 
 	u8* exceptionHandler = nullptr;
-	if (jit->js.memcheck)
+	if (jit->jo.memcheck)
 	{
 		auto it2 = exceptionHandlerAtLoc.find(codePtr);
 		if (it2 != exceptionHandlerAtLoc.end())

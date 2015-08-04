@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 
@@ -17,8 +17,8 @@ union UGeckoInstruction
 {
 	u32 hex;
 
-	UGeckoInstruction(u32 _hex) { hex = _hex;}
-	UGeckoInstruction()         { hex = 0;}
+	UGeckoInstruction(u32 _hex) : hex(_hex) {}
+	UGeckoInstruction() : hex(0) {}
 
 	struct
 	{
@@ -831,7 +831,9 @@ enum
 	EXCEPTION_ALIGNMENT           = 0x00000020,
 	EXCEPTION_FPU_UNAVAILABLE     = 0x00000040,
 	EXCEPTION_PROGRAM             = 0x00000080,
-	EXCEPTION_PERFORMANCE_MONITOR = 0x00000100
+	EXCEPTION_PERFORMANCE_MONITOR = 0x00000100,
+
+	EXCEPTION_FAKE_MEMCHECK_HIT   = 0x00000200,
 };
 
 inline s32 SignExt16(s16 x) {return (s32)(s16)x;}

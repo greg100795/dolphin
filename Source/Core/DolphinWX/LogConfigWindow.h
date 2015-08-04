@@ -1,20 +1,16 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2011 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
 
-#include <wx/defs.h>
 #include <wx/panel.h>
-#include <wx/windowid.h>
 
 class LogManager;
 class CLogWindow;
 class wxCheckBox;
 class wxCheckListBox;
-class wxCommandEvent;
 class wxRadioBox;
-class wxWindow;
 
 class LogConfigWindow : public wxPanel
 {

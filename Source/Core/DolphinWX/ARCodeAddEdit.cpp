@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <algorithm>
@@ -7,20 +7,13 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
-#include <wx/chartype.h>
-#include <wx/defs.h>
 #include <wx/dialog.h>
-#include <wx/event.h>
 #include <wx/gbsizer.h>
-#include <wx/gdicmn.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/spinbutt.h>
 #include <wx/stattext.h>
-#include <wx/string.h>
 #include <wx/textctrl.h>
-#include <wx/translation.h>
-#include <wx/windowid.h>
 
 #include "Common/CommonTypes.h"
 #include "Common/StringUtil.h"
@@ -37,7 +30,7 @@ CARCodeAddEdit::CARCodeAddEdit(int _selection, std::vector<ActionReplay::ARCode>
 	Bind(wxEVT_BUTTON, &CARCodeAddEdit::SaveCheatData, this, wxID_OK);
 
 	ActionReplay::ARCode tempEntries;
-	wxString currentName = _("Insert name here...");
+	wxString currentName;
 
 	if (selection == wxNOT_FOUND)
 	{
@@ -54,6 +47,8 @@ CARCodeAddEdit::CARCodeAddEdit(int _selection, std::vector<ActionReplay::ARCode>
 	wxGridBagSizer* sgEntry = new wxGridBagSizer(0, 0);
 
 	wxStaticText* EditCheatNameText = new wxStaticText(this, wxID_ANY, _("Name:"));
+	wxStaticText* EditCheatCodeText = new wxStaticText(this, wxID_ANY, _("Code:"));
+
 	EditCheatName = new wxTextCtrl(this, wxID_ANY, wxEmptyString);
 	EditCheatName->SetValue(currentName);
 
@@ -63,12 +58,14 @@ CARCodeAddEdit::CARCodeAddEdit(int _selection, std::vector<ActionReplay::ARCode>
 	EntrySelection->Bind(wxEVT_SPIN, &CARCodeAddEdit::ChangeEntry, this);
 
 	EditCheatCode = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(300, 100), wxTE_MULTILINE);
+
 	UpdateTextCtrl(tempEntries);
 
 	sgEntry->Add(EditCheatNameText, wxGBPosition(0, 0), wxGBSpan(1, 1), wxALIGN_CENTER | wxALL, 5);
+	sgEntry->Add(EditCheatCodeText, wxGBPosition(1, 0), wxGBSpan(1, 1), wxALIGN_CENTER | wxALL, 5);
 	sgEntry->Add(EditCheatName,     wxGBPosition(0, 1), wxGBSpan(1, 1), wxEXPAND | wxALL, 5);
 	sgEntry->Add(EntrySelection,    wxGBPosition(0, 2), wxGBSpan(2, 1), wxEXPAND | wxALL, 5);
-	sgEntry->Add(EditCheatCode,     wxGBPosition(1, 0), wxGBSpan(1, 2), wxEXPAND | wxALL, 5);
+	sgEntry->Add(EditCheatCode,     wxGBPosition(1, 1), wxGBSpan(1, 1), wxEXPAND | wxALL, 5);
 	sgEntry->AddGrowableCol(1);
 	sgEntry->AddGrowableRow(1);
 	sbEntry->Add(sgEntry, 1, wxEXPAND | wxALL);
@@ -183,8 +180,5 @@ void CARCodeAddEdit::UpdateTextCtrl(ActionReplay::ARCode arCode)
 		for (auto& op : arCode.ops)
 			EditCheatCode->AppendText(wxString::Format("%08X %08X\n", op.cmd_addr, op.value));
 	}
-	else
-	{
-		EditCheatCode->SetValue(_("Insert Encrypted or Decrypted code here..."));
-	}
 }
+

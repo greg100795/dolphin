@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <map>
@@ -178,19 +178,19 @@ void Jit64::Init()
 
 	jo.optimizeGatherPipe = true;
 	jo.accurateSinglePrecision = true;
-	js.memcheck = SConfig::GetInstance().m_LocalCoreStartupParameter.bMMU;
+	UpdateMemoryOptions();
 	js.fastmemLoadStore = nullptr;
 	js.compilerPC = 0;
 
 	gpr.SetEmitter(this);
 	fpr.SetEmitter(this);
 
-	trampolines.Init(js.memcheck ? TRAMPOLINE_CODE_SIZE_MMU : TRAMPOLINE_CODE_SIZE);
+	trampolines.Init(jo.memcheck ? TRAMPOLINE_CODE_SIZE_MMU : TRAMPOLINE_CODE_SIZE);
 	AllocCodeSpace(CODE_SIZE);
 
 	// BLR optimization has the same consequences as block linking, as well as
 	// depending on the fault handler to be safe in the event of excessive BL.
-	m_enable_blr_optimization = jo.enableBlocklink && SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem && !SConfig::GetInstance().m_LocalCoreStartupParameter.bEnableDebugging;
+	m_enable_blr_optimization = jo.enableBlocklink && SConfig::GetInstance().bFastmem && !SConfig::GetInstance().bEnableDebugging;
 	m_clear_cache_asap = false;
 
 	m_stack = nullptr;
@@ -202,7 +202,7 @@ void Jit64::Init()
 
 	// important: do this *after* generating the global asm routines, because we can't use farcode in them.
 	// it'll crash because the farcode functions get cleared on JIT clears.
-	farcode.Init(js.memcheck ? FARCODE_SIZE_MMU : FARCODE_SIZE);
+	farcode.Init(jo.memcheck ? FARCODE_SIZE_MMU : FARCODE_SIZE);
 
 	code_block.m_stats = &js.st;
 	code_block.m_gpa = &js.gpa;
@@ -216,6 +216,7 @@ void Jit64::ClearCache()
 	trampolines.ClearCodeSpace();
 	farcode.ClearCodeSpace();
 	ClearCodeSpace();
+	UpdateMemoryOptions();
 	m_clear_cache_asap = false;
 }
 
@@ -230,12 +231,11 @@ void Jit64::Shutdown()
 	farcode.Shutdown();
 }
 
-// This is only called by FallBackToInterpreter() in this file. It will execute an instruction with the interpreter functions.
-void Jit64::WriteCallInterpreter(UGeckoInstruction inst)
+void Jit64::FallBackToInterpreter(UGeckoInstruction inst)
 {
 	gpr.Flush();
 	fpr.Flush();
-	if (js.isLastInstruction)
+	if (js.op->opinfo->flags & FL_ENDBLOCK)
 	{
 		MOV(32, PPCSTATE(pc), Imm32(js.compilerPC));
 		MOV(32, PPCSTATE(npc), Imm32(js.compilerPC + 4));
@@ -244,11 +244,25 @@ void Jit64::WriteCallInterpreter(UGeckoInstruction inst)
 	ABI_PushRegistersAndAdjustStack({}, 0);
 	ABI_CallFunctionC((void*)instr, inst.hex);
 	ABI_PopRegistersAndAdjustStack({}, 0);
-}
-
-void Jit64::FallBackToInterpreter(UGeckoInstruction _inst)
-{
-	WriteCallInterpreter(_inst.hex);
+	if (js.op->opinfo->flags & FL_ENDBLOCK)
+	{
+		if (js.isLastInstruction)
+		{
+			MOV(32, R(RSCRATCH), PPCSTATE(npc));
+			MOV(32, PPCSTATE(pc), R(RSCRATCH));
+			WriteExceptionExit();
+		}
+		else
+		{
+			MOV(32, R(RSCRATCH), PPCSTATE(npc));
+			SUB(32, R(RSCRATCH), Imm32(js.compilerPC + 4));
+			FixupBranch c = J_CC(CC_Z);
+			MOV(32, R(RSCRATCH), PPCSTATE(npc));
+			MOV(32, PPCSTATE(pc), R(RSCRATCH));
+			WriteExceptionExit();
+			SetJumpTarget(c);
+		}
+	}
 }
 
 void Jit64::HLEFunction(UGeckoInstruction _inst)
@@ -489,11 +503,9 @@ void Jit64::Trace()
 
 void Jit64::Jit(u32 em_address)
 {
-	if (GetSpaceLeft() < 0x10000 ||
-	    farcode.GetSpaceLeft() < 0x10000 ||
-	    trampolines.GetSpaceLeft() < 0x10000 ||
+	if (IsAlmostFull() || farcode.IsAlmostFull() || trampolines.IsAlmostFull() ||
 	    blocks.IsFull() ||
-	    SConfig::GetInstance().m_LocalCoreStartupParameter.bJITNoBlockCache ||
+	    SConfig::GetInstance().bJITNoBlockCache ||
 	    m_clear_cache_asap)
 	{
 		ClearCache();
@@ -501,7 +513,7 @@ void Jit64::Jit(u32 em_address)
 
 	int blockSize = code_buffer.GetSize();
 
-	if (SConfig::GetInstance().m_LocalCoreStartupParameter.bEnableDebugging)
+	if (SConfig::GetInstance().bEnableDebugging)
 	{
 		// We can link blocks as long as we are not single stepping and there are no breakpoints here
 		EnableBlockLink();
@@ -598,7 +610,7 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer *code_buf, JitBloc
 	fpr.Start();
 
 	js.downcountAmount = 0;
-	if (!SConfig::GetInstance().m_LocalCoreStartupParameter.bEnableDebugging)
+	if (!SConfig::GetInstance().bEnableDebugging)
 		js.downcountAmount += PatchEngine::GetSpeedhackCycles(code_block.m_address);
 
 	js.skipInstructions = 0;
@@ -622,12 +634,13 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer *code_buf, JitBloc
 			CMP(32, PPCSTATE(spr[SPR_GQR0 + gqr]), Imm8(0));
 			FixupBranch failure = J_CC(CC_NZ, true);
 			SwitchToFarCode();
-			SetJumpTarget(failure);
-			MOV(32, PPCSTATE(pc), Imm32(js.blockStart));
-			ABI_PushRegistersAndAdjustStack({}, 0);
-			ABI_CallFunctionC((void *)&JitInterface::CompileExceptionCheck, (u32)JitInterface::ExceptionType::EXCEPTIONS_PAIRED_QUANTIZE);
-			ABI_PopRegistersAndAdjustStack({}, 0);
-			JMP(asm_routines.dispatcher, true);
+				SetJumpTarget(failure);
+				MOV(32, PPCSTATE(pc), Imm32(js.blockStart));
+				ABI_PushRegistersAndAdjustStack({}, 0);
+				ABI_CallFunctionC((void *)&JitInterface::CompileExceptionCheck,
+				                  (u32)JitInterface::ExceptionType::EXCEPTIONS_PAIRED_QUANTIZE);
+				ABI_PopRegistersAndAdjustStack({}, 0);
+				JMP(asm_routines.dispatcher, true);
 			SwitchToNearCode();
 			js.assumeNoPairedQuantize = true;
 		}
@@ -683,19 +696,21 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer *code_buf, JitBloc
 		{
 			TEST(32, PPCSTATE(Exceptions), Imm32(EXCEPTION_EXTERNAL_INT));
 			FixupBranch extException = J_CC(CC_NZ, true);
+
 			SwitchToFarCode();
-			SetJumpTarget(extException);
-			TEST(32, PPCSTATE(msr), Imm32(0x0008000));
-			FixupBranch noExtIntEnable = J_CC(CC_Z, true);
-			TEST(32, M(&ProcessorInterface::m_InterruptCause), Imm32(ProcessorInterface::INT_CAUSE_CP | ProcessorInterface::INT_CAUSE_PE_TOKEN | ProcessorInterface::INT_CAUSE_PE_FINISH));
-			FixupBranch noCPInt = J_CC(CC_Z, true);
+				SetJumpTarget(extException);
+				TEST(32, PPCSTATE(msr), Imm32(0x0008000));
+				FixupBranch noExtIntEnable = J_CC(CC_Z, true);
+				TEST(32, M(&ProcessorInterface::m_InterruptCause), Imm32(ProcessorInterface::INT_CAUSE_CP |
+				                                                         ProcessorInterface::INT_CAUSE_PE_TOKEN |
+				                                                         ProcessorInterface::INT_CAUSE_PE_FINISH));
+				FixupBranch noCPInt = J_CC(CC_Z, true);
 
-			gpr.Flush(FLUSH_MAINTAIN_STATE);
-			fpr.Flush(FLUSH_MAINTAIN_STATE);
+				gpr.Flush(FLUSH_MAINTAIN_STATE);
+				fpr.Flush(FLUSH_MAINTAIN_STATE);
 
-			MOV(32, PPCSTATE(pc), Imm32(ops[i].address));
-			WriteExternalExceptionExit();
-
+				MOV(32, PPCSTATE(pc), Imm32(ops[i].address));
+				WriteExternalExceptionExit();
 			SwitchToNearCode();
 
 			SetJumpTarget(noCPInt);
@@ -730,22 +745,23 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer *code_buf, JitBloc
 				//This instruction uses FPU - needs to add FP exception bailout
 				TEST(32, PPCSTATE(msr), Imm32(1 << 13)); // Test FP enabled bit
 				FixupBranch b1 = J_CC(CC_Z, true);
+
 				SwitchToFarCode();
-				SetJumpTarget(b1);
-				gpr.Flush(FLUSH_MAINTAIN_STATE);
-				fpr.Flush(FLUSH_MAINTAIN_STATE);
+					SetJumpTarget(b1);
+					gpr.Flush(FLUSH_MAINTAIN_STATE);
+					fpr.Flush(FLUSH_MAINTAIN_STATE);
 
-				// If a FPU exception occurs, the exception handler will read
-				// from PC.  Update PC with the latest value in case that happens.
-				MOV(32, PPCSTATE(pc), Imm32(ops[i].address));
-				OR(32, PPCSTATE(Exceptions), Imm32(EXCEPTION_FPU_UNAVAILABLE));
-				WriteExceptionExit();
-
+					// If a FPU exception occurs, the exception handler will read
+					// from PC.  Update PC with the latest value in case that happens.
+					MOV(32, PPCSTATE(pc), Imm32(ops[i].address));
+					OR(32, PPCSTATE(Exceptions), Imm32(EXCEPTION_FPU_UNAVAILABLE));
+					WriteExceptionExit();
 				SwitchToNearCode();
+
 				js.firstFPInstructionFound = true;
 			}
 
-			if (SConfig::GetInstance().m_LocalCoreStartupParameter.bEnableDebugging && breakpoints.IsAddressBreakPoint(ops[i].address) && GetState() != CPU_STEPPING)
+			if (SConfig::GetInstance().bEnableDebugging && breakpoints.IsAddressBreakPoint(ops[i].address) && GetState() != CPU_STEPPING)
 			{
 				// Turn off block linking if there are breakpoints so that the Step Over command does not link this block.
 				jo.enableBlocklink = false;
@@ -788,7 +804,7 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer *code_buf, JitBloc
 
 			Jit64Tables::CompileInstruction(ops[i]);
 
-			if (js.memcheck && (opinfo->flags & FL_LOADSTORE))
+			if (jo.memcheck && (opinfo->flags & FL_LOADSTORE))
 			{
 				// If we have a fastmem loadstore, we can omit the exception check and let fastmem handle it.
 				FixupBranch memException;
@@ -801,29 +817,29 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer *code_buf, JitBloc
 				}
 
 				SwitchToFarCode();
-				if (!js.fastmemLoadStore)
-				{
-					exceptionHandlerAtLoc[js.fastmemLoadStore] = nullptr;
-					SetJumpTarget(js.fixupExceptionHandler ? js.exceptionHandler : memException);
-				}
-				else
-				{
-					exceptionHandlerAtLoc[js.fastmemLoadStore] = GetWritableCodePtr();
-				}
+					if (!js.fastmemLoadStore)
+					{
+						exceptionHandlerAtLoc[js.fastmemLoadStore] = nullptr;
+						SetJumpTarget(js.fixupExceptionHandler ? js.exceptionHandler : memException);
+					}
+					else
+					{
+						exceptionHandlerAtLoc[js.fastmemLoadStore] = GetWritableCodePtr();
+					}
 
-				BitSet32 gprToFlush = BitSet32::AllTrue(32);
-				BitSet32 fprToFlush = BitSet32::AllTrue(32);
-				if (js.revertGprLoad >= 0)
-					gprToFlush[js.revertGprLoad] = false;
-				if (js.revertFprLoad >= 0)
-					fprToFlush[js.revertFprLoad] = false;
-				gpr.Flush(FLUSH_MAINTAIN_STATE, gprToFlush);
-				fpr.Flush(FLUSH_MAINTAIN_STATE, fprToFlush);
+					BitSet32 gprToFlush = BitSet32::AllTrue(32);
+					BitSet32 fprToFlush = BitSet32::AllTrue(32);
+					if (js.revertGprLoad >= 0)
+						gprToFlush[js.revertGprLoad] = false;
+					if (js.revertFprLoad >= 0)
+						fprToFlush[js.revertFprLoad] = false;
+					gpr.Flush(FLUSH_MAINTAIN_STATE, gprToFlush);
+					fpr.Flush(FLUSH_MAINTAIN_STATE, fprToFlush);
 
-				// If a memory exception occurs, the exception handler will read
-				// from PC.  Update PC with the latest value in case that happens.
-				MOV(32, PPCSTATE(pc), Imm32(ops[i].address));
-				WriteExceptionExit();
+					// If a memory exception occurs, the exception handler will read
+					// from PC.  Update PC with the latest value in case that happens.
+					MOV(32, PPCSTATE(pc), Imm32(ops[i].address));
+					WriteExceptionExit();
 				SwitchToNearCode();
 			}
 
@@ -858,11 +874,11 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer *code_buf, JitBloc
 		WriteExit(nextPC);
 	}
 
-	b->codeSize = (u32)(GetCodePtr() - normalEntry);
+	b->codeSize = (u32)(GetCodePtr() - start);
 	b->originalSize = code_block.m_num_instructions;
 
 #ifdef JIT_LOG_X86
-	LogGeneratedX86(code_block.m_num_instructions, code_buf, normalEntry, b);
+	LogGeneratedX86(code_block.m_num_instructions, code_buf, start, b);
 #endif
 
 	return normalEntry;
@@ -884,7 +900,7 @@ BitSet32 Jit64::CallerSavedRegistersInUse()
 void Jit64::EnableBlockLink()
 {
 	jo.enableBlocklink = true;
-	if (SConfig::GetInstance().m_LocalCoreStartupParameter.bJITNoBlockLinking)
+	if (SConfig::GetInstance().bJITNoBlockLinking)
 		jo.enableBlocklink = false;
 }
 

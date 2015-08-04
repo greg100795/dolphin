@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Common/CommonTypes.h"
@@ -14,7 +14,7 @@ using namespace Gen;
 
 void EmuCodeBlock::MemoryExceptionCheck()
 {
-	if (jit->js.memcheck && !jit->js.fastmemLoadStore && !jit->js.fixupExceptionHandler)
+	if (jit->jo.memcheck && !jit->js.fastmemLoadStore && !jit->js.fixupExceptionHandler)
 	{
 		TEST(32, PPCSTATE(Exceptions), Gen::Imm32(EXCEPTION_DSI));
 		jit->js.exceptionHandler = J_CC(Gen::CC_NZ, true);
@@ -156,7 +156,7 @@ private:
 
 	// Generate the proper MOV instruction depending on whether the read should
 	// be sign extended or zero extended.
-	void MoveOpArgToReg(int sbits, Gen::OpArg arg)
+	void MoveOpArgToReg(int sbits, const Gen::OpArg& arg)
 	{
 		if (m_sign_extend)
 			m_code->MOVSX(32, sbits, m_dst_reg, arg);
@@ -166,11 +166,7 @@ private:
 
 	void LoadAddrMaskToReg(int sbits, const void* ptr, u32 mask)
 	{
-#ifdef _ARCH_64
 		m_code->MOV(64, R(RSCRATCH), ImmPtr(ptr));
-#else
-		m_code->MOV(32, R(RSCRATCH), ImmPtr(ptr));
-#endif
 		// If we do not need to mask, we can do the sign extend while loading
 		// from memory. If masking is required, we have to first zero extend,
 		// then mask, then sign extend if needed (1 instr vs. 2/3).
@@ -233,7 +229,7 @@ void EmuCodeBlock::MMIOLoadToReg(MMIO::Mapping* mmio, Gen::X64Reg reg_value,
 	}
 }
 
-FixupBranch EmuCodeBlock::CheckIfSafeAddress(OpArg reg_value, X64Reg reg_addr, BitSet32 registers_in_use, u32 mem_mask)
+FixupBranch EmuCodeBlock::CheckIfSafeAddress(const OpArg& reg_value, X64Reg reg_addr, BitSet32 registers_in_use, u32 mem_mask)
 {
 	registers_in_use[reg_addr] = true;
 	if (reg_value.IsSimpleReg())
@@ -254,7 +250,7 @@ FixupBranch EmuCodeBlock::CheckIfSafeAddress(OpArg reg_value, X64Reg reg_addr, B
 	// assuming they'll never do an invalid memory access.
 	// The slightly more complex check needed for Wii games using the space just above MEM1 isn't
 	// implemented here yet, since there are no known working Wii MMU games to test it with.
-	if (jit->js.memcheck && !SConfig::GetInstance().m_LocalCoreStartupParameter.bWii)
+	if (jit->jo.memcheck && !SConfig::GetInstance().bWii)
 	{
 		if (scratch == reg_addr)
 			PUSH(scratch);
@@ -276,13 +272,9 @@ FixupBranch EmuCodeBlock::CheckIfSafeAddress(OpArg reg_value, X64Reg reg_addr, B
 void EmuCodeBlock::SafeLoadToReg(X64Reg reg_value, const Gen::OpArg & opAddress, int accessSize, s32 offset, BitSet32 registersInUse, bool signExtend, int flags)
 {
 	registersInUse[reg_value] = false;
-	if (SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem &&
+	if (jit->jo.fastmem &&
 	    !opAddress.IsImm() &&
-	    !(flags & (SAFE_LOADSTORE_NO_SWAP | SAFE_LOADSTORE_NO_FASTMEM))
-#ifdef ENABLE_MEM_CHECK
-	    && !SConfig::GetInstance().m_LocalCoreStartupParameter.bEnableDebugging
-#endif
-	    )
+	    !(flags & (SAFE_LOADSTORE_NO_SWAP | SAFE_LOADSTORE_NO_FASTMEM)))
 	{
 		u8 *mov = UnsafeLoadToReg(reg_value, opAddress, accessSize, offset, signExtend);
 
@@ -349,14 +341,17 @@ void EmuCodeBlock::SafeLoadToReg(X64Reg reg_value, const Gen::OpArg & opAddress,
 		LEA(32, RSCRATCH, MDisp(opAddress.GetSimpleReg(), offset));
 	}
 
-	FixupBranch slow, exit;
-	slow = CheckIfSafeAddress(R(reg_value), reg_addr, registersInUse, mem_mask);
-	UnsafeLoadToReg(reg_value, R(reg_addr), accessSize, 0, signExtend);
-	if (farcode.Enabled())
-		SwitchToFarCode();
-	else
-		exit = J(true);
-	SetJumpTarget(slow);
+	FixupBranch exit;
+	if (!jit->jo.alwaysUseMemFuncs)
+	{
+		FixupBranch slow = CheckIfSafeAddress(R(reg_value), reg_addr, registersInUse, mem_mask);
+		UnsafeLoadToReg(reg_value, R(reg_addr), accessSize, 0, signExtend);
+		if (farcode.Enabled())
+			SwitchToFarCode();
+		else
+			exit = J(true);
+		SetJumpTarget(slow);
+	}
 	size_t rsp_alignment = (flags & SAFE_LOADSTORE_NO_PROLOG) ? 8 : 0;
 	ABI_PushRegistersAndAdjustStack(registersInUse, rsp_alignment);
 	switch (accessSize)
@@ -387,15 +382,18 @@ void EmuCodeBlock::SafeLoadToReg(X64Reg reg_value, const Gen::OpArg & opAddress,
 		MOVZX(64, accessSize, reg_value, R(ABI_RETURN));
 	}
 
-	if (farcode.Enabled())
+	if (!jit->jo.alwaysUseMemFuncs)
 	{
-		exit = J(true);
-		SwitchToNearCode();
+		if (farcode.Enabled())
+		{
+			exit = J(true);
+			SwitchToNearCode();
+		}
+		SetJumpTarget(exit);
 	}
-	SetJumpTarget(exit);
 }
 
-static OpArg SwapImmediate(int accessSize, OpArg reg_value)
+static OpArg SwapImmediate(int accessSize, const OpArg& reg_value)
 {
 	if (accessSize == 32)
 		return Imm32(Common::swap32(reg_value.Imm32()));
@@ -455,16 +453,16 @@ void EmuCodeBlock::UnsafeWriteGatherPipe(int accessSize)
 	switch (accessSize)
 	{
 	case 8:
-		CALL((void *)jit->GetAsmRoutines()->fifoDirectWrite8);
+		CALL(jit->GetAsmRoutines()->fifoDirectWrite8);
 		break;
 	case 16:
-		CALL((void *)jit->GetAsmRoutines()->fifoDirectWrite16);
+		CALL(jit->GetAsmRoutines()->fifoDirectWrite16);
 		break;
 	case 32:
-		CALL((void *)jit->GetAsmRoutines()->fifoDirectWrite32);
+		CALL(jit->GetAsmRoutines()->fifoDirectWrite32);
 		break;
 	case 64:
-		CALL((void *)jit->GetAsmRoutines()->fifoDirectWrite64);
+		CALL(jit->GetAsmRoutines()->fifoDirectWrite64);
 		break;
 	}
 	jit->js.fifoBytesThisBlock += accessSize >> 3;
@@ -521,13 +519,9 @@ void EmuCodeBlock::SafeWriteRegToReg(OpArg reg_value, X64Reg reg_addr, int acces
 	reg_value = FixImmediate(accessSize, reg_value);
 
 	// TODO: support byte-swapped non-immediate fastmem stores
-	if (SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem &&
+	if (jit->jo.fastmem &&
 	    !(flags & SAFE_LOADSTORE_NO_FASTMEM) &&
-		(reg_value.IsImm() || !(flags & SAFE_LOADSTORE_NO_SWAP))
-#ifdef ENABLE_MEM_CHECK
-	    && !SConfig::GetInstance().m_LocalCoreStartupParameter.bEnableDebugging
-#endif
-	    )
+		(reg_value.IsImm() || !(flags & SAFE_LOADSTORE_NO_SWAP)))
 	{
 		const u8* backpatchStart = GetCodePtr();
 		u8* mov = UnsafeWriteRegToReg(reg_value, reg_addr, accessSize, offset, !(flags & SAFE_LOADSTORE_NO_SWAP));
@@ -642,37 +636,36 @@ void EmuCodeBlock::WriteToConstRamAddress(int accessSize, OpArg arg, u32 address
 		MOV(accessSize, MRegSum(RMEM, RSCRATCH2), R(reg));
 }
 
-void EmuCodeBlock::ForceSinglePrecisionS(X64Reg output, X64Reg input)
+void EmuCodeBlock::ForceSinglePrecision(X64Reg output, const OpArg& input, bool packed, bool duplicate)
 {
 	// Most games don't need these. Zelda requires it though - some platforms get stuck without them.
 	if (jit->jo.accurateSinglePrecision)
 	{
-		CVTSD2SS(input, R(input));
-		CVTSS2SD(output, R(input));
+		if (packed)
+		{
+			CVTPD2PS(output, input);
+			CVTPS2PD(output, R(output));
+		}
+		else
+		{
+			CVTSD2SS(output, input);
+			CVTSS2SD(output, R(output));
+			if (duplicate)
+				MOVDDUP(output, R(output));
+		}
 	}
-	else if (output != input)
+	else if (!input.IsSimpleReg() || input.GetSimpleReg() != output)
 	{
-		MOVAPD(output, R(input));
-	}
-}
-
-void EmuCodeBlock::ForceSinglePrecisionP(X64Reg output, X64Reg input)
-{
-	// Most games don't need these. Zelda requires it though - some platforms get stuck without them.
-	if (jit->jo.accurateSinglePrecision)
-	{
-		CVTPD2PS(input, R(input));
-		CVTPS2PD(output, R(input));
-	}
-	else if (output != input)
-	{
-		MOVAPD(output, R(input));
+		if (duplicate)
+			MOVDDUP(output, input);
+		else
+			MOVAPD(output, input);
 	}
 }
 
 // Abstract between AVX and SSE: automatically handle 3-operand instructions
-void EmuCodeBlock::avx_op(void (XEmitter::*avxOp)(X64Reg, X64Reg, OpArg), void (XEmitter::*sseOp)(X64Reg, OpArg),
-                          X64Reg regOp, OpArg arg1, OpArg arg2, bool packed, bool reversible)
+void EmuCodeBlock::avx_op(void (XEmitter::*avxOp)(X64Reg, X64Reg, const OpArg&), void (XEmitter::*sseOp)(X64Reg, const OpArg&),
+                          X64Reg regOp, const OpArg& arg1, const OpArg& arg2, bool packed, bool reversible)
 {
 	if (arg1.IsSimpleReg() && regOp == arg1.GetSimpleReg())
 	{
@@ -718,8 +711,8 @@ void EmuCodeBlock::avx_op(void (XEmitter::*avxOp)(X64Reg, X64Reg, OpArg), void (
 }
 
 // Abstract between AVX and SSE: automatically handle 3-operand instructions
-void EmuCodeBlock::avx_op(void (XEmitter::*avxOp)(X64Reg, X64Reg, OpArg, u8), void (XEmitter::*sseOp)(X64Reg, OpArg, u8),
-                          X64Reg regOp, OpArg arg1, OpArg arg2, u8 imm)
+void EmuCodeBlock::avx_op(void (XEmitter::*avxOp)(X64Reg, X64Reg, const OpArg&, u8), void (XEmitter::*sseOp)(X64Reg, const OpArg&, u8),
+                          X64Reg regOp, const OpArg& arg1, const OpArg& arg2, u8 imm)
 {
 	if (arg1.IsSimpleReg() && regOp == arg1.GetSimpleReg())
 	{
@@ -758,7 +751,7 @@ static const u64 GC_ALIGNED16(psRoundBit[2]) = {0x8000000, 0x8000000};
 // a single precision multiply. To be precise, it drops the low 28 bits of the mantissa,
 // rounding to nearest as it does.
 // It needs a temp, so let the caller pass that in.
-void EmuCodeBlock::Force25BitPrecision(X64Reg output, OpArg input, X64Reg tmp)
+void EmuCodeBlock::Force25BitPrecision(X64Reg output, const OpArg& input, X64Reg tmp)
 {
 	if (jit->jo.accurateSinglePrecision)
 	{
@@ -897,22 +890,22 @@ void EmuCodeBlock::ConvertDoubleToSingle(X64Reg dst, X64Reg src)
 	CVTSD2SS(dst, R(src));
 
 	SwitchToFarCode();
-	SetJumpTarget(nanConversion);
-	MOVQ_xmm(R(RSCRATCH), src);
-	// Put the quiet bit into CF.
-	BT(64, R(RSCRATCH), Imm8(51));
-	CVTSD2SS(dst, R(src));
-	FixupBranch continue1 = J_CC(CC_C, true);
-	// Clear the quiet bit of the SNaN, which was 0 (signalling) but got set to 1 (quiet) by conversion.
-	ANDPS(dst, M(&single_qnan_bit));
-	FixupBranch continue2 = J(true);
+		SetJumpTarget(nanConversion);
+		MOVQ_xmm(R(RSCRATCH), src);
+		// Put the quiet bit into CF.
+		BT(64, R(RSCRATCH), Imm8(51));
+		CVTSD2SS(dst, R(src));
+		FixupBranch continue1 = J_CC(CC_C, true);
+		// Clear the quiet bit of the SNaN, which was 0 (signalling) but got set to 1 (quiet) by conversion.
+		ANDPS(dst, M(&single_qnan_bit));
+		FixupBranch continue2 = J(true);
 
-	SetJumpTarget(denormalConversion);
-	MOVSD(M(&temp64), src);
-	FLD(64, M(&temp64));
-	FSTP(32, M(&temp32));
-	MOVSS(dst, M(&temp32));
-	FixupBranch continue3 = J(true);
+		SetJumpTarget(denormalConversion);
+		MOVSD(M(&temp64), src);
+		FLD(64, M(&temp64));
+		FSTP(32, M(&temp32));
+		MOVSS(dst, M(&temp32));
+		FixupBranch continue3 = J(true);
 	SwitchToNearCode();
 
 	SetJumpTarget(continue1);
@@ -943,11 +936,11 @@ void EmuCodeBlock::ConvertSingleToDouble(X64Reg dst, X64Reg src, bool src_is_gpr
 	FixupBranch nanConversion = J_CC(CC_P, true);
 
 	SwitchToFarCode();
-	SetJumpTarget(nanConversion);
-	TEST(32, R(gprsrc), Imm32(0x00400000));
-	FixupBranch continue1 = J_CC(CC_NZ, true);
-	ANDPD(dst, M(&double_qnan_bit));
-	FixupBranch continue2 = J(true);
+		SetJumpTarget(nanConversion);
+		TEST(32, R(gprsrc), Imm32(0x00400000));
+		FixupBranch continue1 = J_CC(CC_NZ, true);
+		ANDPD(dst, M(&double_qnan_bit));
+		FixupBranch continue2 = J(true);
 	SwitchToNearCode();
 
 	SetJumpTarget(continue1);

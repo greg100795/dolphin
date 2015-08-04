@@ -1,14 +1,9 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2009 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include <wx/chartype.h>
 #include <wx/colour.h>
-#include <wx/defs.h>
-#include <wx/gdicmn.h>
 #include <wx/grid.h>
-#include <wx/string.h>
-#include <wx/windowid.h>
 
 #include "Common/CommonTypes.h"
 #include "Core/DSP/DSPCore.h"

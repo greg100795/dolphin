@@ -1,8 +1,9 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2015 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "VideoCommon/VertexLoaderARM64.h"
+#include "VideoCommon/VertexLoaderManager.h"
 
 using namespace Arm64Gen;
 
@@ -164,6 +165,18 @@ int VertexLoaderARM64::ReadVertex(u64 attribute, int format, int count_in, int c
 		m_float_emit.ST1(32, 1, coords, EncodeRegTo64(scratch2_reg));
 	}
 
+	// Z-Freeze
+	if (native_format == &m_native_vtx_decl.position)
+	{
+		CMP(count_reg, 3);
+		FixupBranch dont_store = B(CC_GT);
+		MOVI2R(EncodeRegTo64(scratch2_reg), (u64)VertexLoaderManager::position_cache);
+		ORR(scratch1_reg, WSP, count_reg, ArithOption(count_reg, ST_LSL, 4));
+		ADD(EncodeRegTo64(scratch1_reg), EncodeRegTo64(scratch1_reg), EncodeRegTo64(scratch2_reg));
+		m_float_emit.STUR(write_size, coords, EncodeRegTo64(scratch1_reg), -16);
+		SetJumpTarget(dont_store);
+	}
+
 	native_format->components = count_out;
 	native_format->enable = true;
 	native_format->offset = m_dst_ofs;
@@ -204,7 +217,7 @@ void VertexLoaderARM64::ReadColor(u64 attribute, int format, s32 offset)
 			if (offset == -1)
 				LDRH(INDEX_UNSIGNED, scratch3_reg, EncodeRegTo64(scratch1_reg), 0);
 			else if (offset & 1) // Not aligned - unscaled
-				LDURH(scratch2_reg, src_reg, offset);
+				LDURH(scratch3_reg, src_reg, offset);
 			else
 				LDRH(INDEX_UNSIGNED, scratch3_reg, src_reg, offset);
 
@@ -241,7 +254,7 @@ void VertexLoaderARM64::ReadColor(u64 attribute, int format, s32 offset)
 			if (offset == -1)
 				LDRH(INDEX_UNSIGNED, scratch3_reg, EncodeRegTo64(scratch1_reg), 0);
 			else if (offset & 1) // Not aligned - unscaled
-				LDURH(scratch2_reg, src_reg, offset);
+				LDURH(scratch3_reg, src_reg, offset);
 			else
 				LDRH(INDEX_UNSIGNED, scratch3_reg, src_reg, offset);
 
@@ -271,16 +284,22 @@ void VertexLoaderARM64::ReadColor(u64 attribute, int format, s32 offset)
 			//          RRRRRRGG GGGGBBBB BBAAAAAA
 			// AAAAAAAA BBBBBBBB GGGGGGGG RRRRRRRR
 			if (offset == -1)
-				LDR(INDEX_UNSIGNED, scratch3_reg, EncodeRegTo64(scratch1_reg), 0);
-			else if (offset & 3) // Not aligned - unscaled
-				LDUR(scratch2_reg, src_reg, offset);
+			{
+				LDUR(scratch3_reg, EncodeRegTo64(scratch1_reg), -1);
+			}
 			else
-				LDR(INDEX_UNSIGNED, scratch3_reg, src_reg, m_src_ofs);
+			{
+				offset -= 1;
+				if (offset & 3) // Not aligned - unscaled
+					LDUR(scratch3_reg, src_reg, offset);
+				else
+					LDR(INDEX_UNSIGNED, scratch3_reg, src_reg, offset);
+			}
 
 			REV32(scratch3_reg, scratch3_reg);
 
 			// A
-			AND(scratch2_reg, scratch3_reg, 32, 5);
+			UBFM(scratch2_reg, scratch3_reg, 0, 5);
 			ORR(scratch2_reg, WSP, scratch2_reg, ArithOption(scratch2_reg, ST_LSL, 2));
 			ORR(scratch2_reg, scratch2_reg, scratch2_reg, ArithOption(scratch2_reg, ST_LSR, 6));
 			ORR(scratch1_reg, WSP, scratch2_reg, ArithOption(scratch2_reg, ST_LSL, 24));
@@ -303,6 +322,7 @@ void VertexLoaderARM64::ReadColor(u64 attribute, int format, s32 offset)
 			ORR(scratch1_reg, scratch1_reg, scratch2_reg, ArithOption(scratch2_reg, ST_LSR, 4));
 
 			STR(INDEX_UNSIGNED, scratch1_reg, dst_reg, m_dst_ofs);
+
 			load_bytes = 3;
 			break;
 	}
@@ -331,7 +351,7 @@ void VertexLoaderARM64::GenerateVertexLoader()
 	MOV(saved_count, count_reg);
 
 	MOVI2R(stride_reg, (u64)&g_main_cp_state.array_strides);
-	MOVI2R(arraybase_reg, (u64)&cached_arraybases);
+	MOVI2R(arraybase_reg, (u64)&VertexLoaderManager::cached_arraybases);
 	MOVI2R(scale_reg, (u64)&scale_factors);
 
 	const u8* loop_start = GetCodePtr();
@@ -341,6 +361,14 @@ void VertexLoaderARM64::GenerateVertexLoader()
 		LDRB(INDEX_UNSIGNED, scratch1_reg, src_reg, m_src_ofs);
 		AND(scratch1_reg, scratch1_reg, 0, 5);
 		STR(INDEX_UNSIGNED, scratch1_reg, dst_reg, m_dst_ofs);
+
+		// Z-Freeze
+		CMP(count_reg, 3);
+		FixupBranch dont_store = B(CC_GT);
+		MOVI2R(EncodeRegTo64(scratch2_reg), (u64)VertexLoaderManager::position_matrix_index - sizeof(u32));
+		STR(INDEX_UNSIGNED, scratch1_reg, EncodeRegTo64(scratch2_reg), 0);
+		SetJumpTarget(dont_store);
+
 		m_native_components |= VB_HAS_POSMTXIDX;
 		m_native_vtx_decl.posmtx.components = 4;
 		m_native_vtx_decl.posmtx.enable = true;
@@ -535,7 +563,7 @@ void VertexLoaderARM64::GenerateVertexLoader()
 	m_native_vtx_decl.stride = m_dst_ofs;
 }
 
-int VertexLoaderARM64::RunVertices(DataReader src, DataReader dst, int count, int primitive)
+int VertexLoaderARM64::RunVertices(DataReader src, DataReader dst, int count)
 {
 	m_numLoadedVertices += count;
 	return ((int (*)(u8* src, u8* dst, int count))region)(src.GetPointer(), dst.GetPointer(), count);

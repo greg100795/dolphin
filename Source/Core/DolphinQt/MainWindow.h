@@ -1,5 +1,5 @@
 // Copyright 2014 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -44,7 +44,10 @@ private slots:
 
 	// Main toolbar
 	void OnOpen();
+	void OnBrowse();
+	void OnExit();
 	void OnPlay();
+	void OnReset();
 
 	// View menu
 	void OnGameListStyleChanged();
@@ -55,18 +58,22 @@ private slots:
 	void OnOpenGitHub();
 	void OnOpenSystemInfo();
 	void OnOpenAbout();
+	void OnOpenAboutQt();
 
 	// Misc.
 	void UpdateIcons();
 
 private:
+	void closeEvent(QCloseEvent* ce);
 	std::unique_ptr<Ui::DMainWindow> m_ui;
 	DGameTracker* m_game_tracker;
 
 	// Emulation
 	QString RequestBootFilename();
 	QString ShowFileDialog();
+	QString ShowFolderDialog();
 	void DoStartPause();
+	bool Stop();
 
 	std::unique_ptr<DRenderWidget> m_render_widget;
 	bool m_isStopping = false;

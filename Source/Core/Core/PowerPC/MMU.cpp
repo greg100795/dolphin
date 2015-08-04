@@ -1,19 +1,6 @@
-// Copyright (C) 2003 Dolphin Project.
-
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, version 2.0.
-
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License 2.0 for more details.
-
-// A copy of the GPL 2.0 should have been included with the program.
-// If not, see http://www.gnu.org/licenses/
-
-// Official Git repository and contact information can be found at
-// https://github.com/dolphin-emu/dolphin
+// Copyright 2003 Dolphin Emulator Project
+// Licensed under GPLv2+
+// Refer to the license.txt file included.
 
 #include "Common/Atomic.h"
 #include "Common/BitSet.h"
@@ -21,6 +8,7 @@
 
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
+#include "Core/HW/CPU.h"
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/Memmap.h"
 #include "Core/HW/MMIO.h"
@@ -398,7 +386,7 @@ TryReadInstResult TryReadInstruction(u32 address)
 	if (UReg_MSR(MSR).IR)
 	{
 		// TODO: Use real translation.
-		if (SConfig::GetInstance().m_LocalCoreStartupParameter.bMMU && (address & Memory::ADDR_MASK_MEM1))
+		if (SConfig::GetInstance().bMMU && (address & Memory::ADDR_MASK_MEM1))
 		{
 			u32 tlb_addr = TranslateAddress<FLAG_OPCODE>(address);
 			if (tlb_addr == 0)
@@ -455,8 +443,25 @@ static __forceinline void Memcheck(u32 address, u32 var, bool write, int size)
 	TMemCheck *mc = PowerPC::memchecks.GetMemCheck(address);
 	if (mc)
 	{
+		if (CCPU::IsStepping())
+		{
+			// Disable when stepping so that resume works.
+			return;
+		}
 		mc->numHits++;
-		mc->Action(&PowerPC::debug_interface, var, address, write, size, PC);
+		bool pause = mc->Action(&PowerPC::debug_interface, var, address, write, size, PC);
+		if (pause)
+		{
+			CCPU::Break();
+			// Fake a DSI so that all the code that tests for it in order to skip
+			// the rest of the instruction will apply.  (This means that
+			// watchpoints will stop the emulator before the offending load/store,
+			// not after like GDB does, but that's better anyway.  Just need to
+			// make sure resuming after that works.)
+			// It doesn't matter if ReadFromHardware triggers its own DSI because
+			// we'll take it after resuming.
+			PowerPC::ppcState.Exceptions |= EXCEPTION_DSI | EXCEPTION_FAKE_MEMCHECK_HIT;
+		}
 	}
 #endif
 }
@@ -629,6 +634,10 @@ std::string HostGetString(u32 address, size_t size)
 
 bool IsOptimizableRAMAddress(const u32 address)
 {
+#ifdef ENABLE_MEM_CHECK
+	return false;
+#endif
+
 	if (!UReg_MSR(MSR).DR)
 		return false;
 
@@ -752,6 +761,10 @@ void ClearCacheLine(const u32 address)
 
 u32 IsOptimizableMMIOAccess(u32 address, u32 accessSize)
 {
+#ifdef ENABLE_MEM_CHECK
+	return 0;
+#endif
+
 	if (!UReg_MSR(MSR).DR)
 		return 0;
 
@@ -767,6 +780,10 @@ u32 IsOptimizableMMIOAccess(u32 address, u32 accessSize)
 
 bool IsOptimizableGatherPipeWrite(u32 address)
 {
+#ifdef ENABLE_MEM_CHECK
+	return false;
+#endif
+
 	if (!UReg_MSR(MSR).DR)
 		return false;
 
@@ -869,9 +886,9 @@ union UPTE2
 static void GenerateDSIException(u32 effectiveAddress, bool write)
 {
 	// DSI exceptions are only supported in MMU mode.
-	if (!SConfig::GetInstance().m_LocalCoreStartupParameter.bMMU)
+	if (!SConfig::GetInstance().bMMU)
 	{
-		PanicAlertT("Invalid %s to 0x%08x, PC = 0x%08x ", write ? "Write to" : "Read from", effectiveAddress, PC);
+		PanicAlert("Invalid %s 0x%08x, PC = 0x%08x ", write ? "write to" : "read from", effectiveAddress, PC);
 		return;
 	}
 

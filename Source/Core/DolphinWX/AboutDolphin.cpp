@@ -1,21 +1,20 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <wx/bitmap.h>
-#include <wx/defs.h>
 #include <wx/dialog.h>
-#include <wx/gdicmn.h>
 #include <wx/hyperlink.h>
 #include <wx/image.h>
 #include <wx/mstream.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
-#include <wx/string.h>
 #include <wx/textctrl.h>
-#include <wx/translation.h>
-#include <wx/windowid.h>
 #include <wx/generic/statbmpg.h>
+
+#ifdef __APPLE__
+#import <AppKit/AppKit.h>
+#endif
 
 #include "Common/Common.h"
 #include "DolphinWX/AboutDolphin.h"
@@ -26,10 +25,26 @@ AboutDolphin::AboutDolphin(wxWindow *parent, wxWindowID id,
 		const wxSize& size, long style)
 	: wxDialog(parent, id, title, position, size, style)
 {
-	wxMemoryInputStream istream(dolphin_logo_png, sizeof dolphin_logo_png);
+	const unsigned char* dolphin_logo_bin = dolphin_logo_png;
+	size_t dolphin_logo_size = sizeof dolphin_logo_png;
+#ifdef __APPLE__
+	double scaleFactor = 1.0;
+	if (GetContentScaleFactor() >= 2)
+	{
+		dolphin_logo_bin = dolphin_logo_2x_png;
+		dolphin_logo_size = sizeof dolphin_logo_2x_png;
+		scaleFactor = 2.0;
+	}
+#endif
+	wxMemoryInputStream istream(dolphin_logo_bin, dolphin_logo_size);
 	wxImage iDolphinLogo(istream, wxBITMAP_TYPE_PNG);
+#ifdef __APPLE__
+	wxGenericStaticBitmap* const sbDolphinLogo = new wxGenericStaticBitmap(this, wxID_ANY,
+			wxBitmap(iDolphinLogo, -1, scaleFactor));
+#else
 	wxGenericStaticBitmap* const sbDolphinLogo = new wxGenericStaticBitmap(this, wxID_ANY,
 			wxBitmap(iDolphinLogo));
+#endif
 
 	const wxString DolphinText = _("Dolphin");
 	const wxString RevisionText = scm_desc_str;
@@ -47,13 +62,14 @@ AboutDolphin::AboutDolphin(wxWindow *parent, wxWindowID id,
 	const wxString SupportText = _("Support");
 
 	wxStaticText* const Dolphin = new wxStaticText(this, wxID_ANY, DolphinText);
-	wxTextCtrl* const Revision = new wxTextCtrl(this, wxID_ANY, RevisionText, wxDefaultPosition, wxDefaultSize);
+	wxStaticText* const Revision = new wxStaticText(this, wxID_ANY, RevisionText);
+
 	wxStaticText* const Copyright = new wxStaticText(this, wxID_ANY, CopyrightText);
-	wxTextCtrl* const Branch = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxSize(300, 50), wxTE_MULTILINE | wxNO_BORDER | wxTE_NO_VSCROLL);
+	wxStaticText* const Branch = new wxStaticText(this, wxID_ANY, BranchText + "\n" + BranchRevText + "\n" + CompiledText+"\n");
 	wxStaticText* const Message = new wxStaticText(this, wxID_ANY, Text);
-	wxStaticText* const Update = new wxStaticText(this, wxID_ANY, CheckUpdateText);
-	wxStaticText* const FirstSpacer = new wxStaticText(this, wxID_ANY, wxString("  |  "));
-	wxStaticText* const SecondSpacer = new wxStaticText(this, wxID_ANY, wxString("  |  "));
+	wxStaticText* const UpdateText = new wxStaticText(this, wxID_ANY, CheckUpdateText);
+	wxStaticText* const FirstSpacer = new wxStaticText(this, wxID_ANY, "  |  ");
+	wxStaticText* const SecondSpacer = new wxStaticText(this, wxID_ANY, "  |  ");
 	wxHyperlinkCtrl* const Download = new wxHyperlinkCtrl(this, wxID_ANY, "dolphin-emu.org/download", "https://dolphin-emu.org/download/");
 	wxHyperlinkCtrl* const License = new wxHyperlinkCtrl(this, wxID_ANY, LicenseText, "https://github.com/dolphin-emu/dolphin/blob/master/license.txt");
 	wxHyperlinkCtrl* const Authors = new wxHyperlinkCtrl(this, wxID_ANY, AuthorsText, "https://github.com/dolphin-emu/dolphin/graphs/contributors");
@@ -70,23 +86,15 @@ AboutDolphin::AboutDolphin(wxWindow *parent, wxWindowID id,
 	RevisionFont.SetWeight(wxFONTWEIGHT_BOLD);
 	Revision->SetFont(RevisionFont);
 
-	Revision->SetEditable(false);
-	Revision->SetWindowStyle(wxNO_BORDER);
-
 	BranchFont.SetPointSize(7);
 	Branch->SetFont(BranchFont);
-
-	Branch->SetEditable(false);
-	Branch->AppendText(BranchText + "\n");
-	Branch->AppendText(BranchRevText + "\n");
-	Branch->AppendText(CompiledText);
 
 	CopyrightFont.SetPointSize(7);
 	Copyright->SetFont(CopyrightFont);
 	Copyright->SetFocus();
 
 	wxBoxSizer* const sCheckUpdates = new wxBoxSizer(wxHORIZONTAL);
-	sCheckUpdates->Add(Update);
+	sCheckUpdates->Add(UpdateText);
 	sCheckUpdates->Add(Download);
 
 	wxBoxSizer* const sLinks = new wxBoxSizer(wxHORIZONTAL);
@@ -106,8 +114,15 @@ AboutDolphin::AboutDolphin(wxWindow *parent, wxWindowID id,
 	sInfo->Add(Message);
 	sInfo->Add(sLinks);
 
+	wxBoxSizer* const sLogo = new wxBoxSizer(wxVERTICAL);
+	sLogo->AddSpacer(75);
+	sLogo->Add(sbDolphinLogo);
+	sLogo->AddSpacer(40);
+
 	wxBoxSizer* const sMainHor = new wxBoxSizer(wxHORIZONTAL);
-	sMainHor->Add(sbDolphinLogo);
+	sMainHor->AddSpacer(30);
+	sMainHor->Add(sLogo);
+	sMainHor->AddSpacer(30);
 	sMainHor->Add(sInfo);
 	sMainHor->AddSpacer(30);
 

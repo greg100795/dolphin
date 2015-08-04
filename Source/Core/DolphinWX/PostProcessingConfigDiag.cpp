@@ -1,11 +1,12 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2014 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <math.h>
 #include <unordered_map>
 
 #include <wx/button.h>
+#include <wx/checkbox.h>
 #include <wx/notebook.h>
 #include <wx/panel.h>
 #include <wx/sizer.h>
@@ -20,8 +21,7 @@
 #include "VideoCommon/RenderBase.h"
 
 PostProcessingConfigDiag::PostProcessingConfigDiag(wxWindow* parent, const std::string& shader)
-	: wxDialog(parent, wxID_ANY,
-		wxString::Format(_("Post Processing Shader Configuration"))),
+	: wxDialog(parent, wxID_ANY, _("Post Processing Shader Configuration")),
 	  m_shader(shader)
 {
 	// Depending on if we are running already, either use the one from the videobackend

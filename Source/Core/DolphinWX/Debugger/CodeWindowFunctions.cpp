@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2009 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cstddef>
@@ -7,21 +7,14 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <wx/chartype.h>
-#include <wx/defs.h>
-#include <wx/event.h>
 #include <wx/filedlg.h>
 #include <wx/font.h>
 #include <wx/fontdata.h>
 #include <wx/fontdlg.h>
 #include <wx/listbox.h>
 #include <wx/menu.h>
-#include <wx/menuitem.h>
 #include <wx/mimetype.h>
-#include <wx/string.h>
 #include <wx/textdlg.h>
-#include <wx/translation.h>
-#include <wx/utils.h>
 
 #include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"

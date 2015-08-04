@@ -1,5 +1,5 @@
 // Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -15,7 +15,7 @@ typedef pollfd pollfd_t;
 #define MALLOC(x) HeapAlloc(GetProcessHeap(), 0, (x))
 #define FREE(x) HeapFree(GetProcessHeap(), 0, (x))
 
-#elif defined(__linux__) or defined(__APPLE__)
+#elif defined(__linux__) or defined(__APPLE__) or defined(__FreeBSD__)
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
@@ -47,7 +47,6 @@ typedef struct pollfd pollfd_t;
 #include <string>
 #include <unordered_map>
 
-#include "Common/FileUtil.h"
 #include "Core/IPC_HLE/WII_IPC_HLE.h"
 #include "Core/IPC_HLE/WII_IPC_HLE_Device_net.h"
 #include "Core/IPC_HLE/WII_IPC_HLE_Device_net_ssl.h"
@@ -200,7 +199,7 @@ public:
 class WiiSockMan : public ::NonCopyable
 {
 public:
-	static s32 GetNetErrorCode(s32 ret, std::string caller, bool isRW);
+	static s32 GetNetErrorCode(s32 ret, const std::string& caller, bool isRW);
 	static char* DecodeError(s32 ErrorCode);
 
 	static WiiSockMan& GetInstance()

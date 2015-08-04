@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2009 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -38,7 +38,7 @@ enum TSIDevices
 };
 
 // For configuration use, since some devices can have the same SI Device ID
-enum SIDevices
+enum SIDevices : int
 {
 	SIDEVICE_NONE,
 	SIDEVICE_N64_MIC,

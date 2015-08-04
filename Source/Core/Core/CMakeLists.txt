@@ -3,7 +3,6 @@ set(SRCS	ActionReplay.cpp
 			BootManager.cpp
 			ConfigManager.cpp
 			Core.cpp
-			CoreParameter.cpp
 			CoreTiming.cpp
 			DSPEmulator.cpp
 			ec_wii.cpp
@@ -172,6 +171,7 @@ set(SRCS	ActionReplay.cpp
 			PowerPC/JitCommon/JitAsmCommon.cpp
 			PowerPC/JitCommon/JitBase.cpp
 			PowerPC/JitCommon/JitCache.cpp
+			PowerPC/CachedInterpreter.cpp
 			PowerPC/JitILCommon/IR.cpp
 			PowerPC/JitILCommon/JitILBase_Branch.cpp
 			PowerPC/JitILCommon/JitILBase_LoadStore.cpp
@@ -204,24 +204,6 @@ if(_M_X86)
 			PowerPC/JitCommon/JitBackpatch.cpp
 			PowerPC/JitCommon/Jit_Util.cpp
 			PowerPC/JitCommon/TrampolineCache.cpp)
-elseif(_M_ARM_32)
-	set(SRCS ${SRCS}
-			PowerPC/JitArm32/Jit.cpp
-			PowerPC/JitArm32/JitAsm.cpp
-			PowerPC/JitArm32/JitArm_BackPatch.cpp
-			PowerPC/JitArm32/JitArm_Tables.cpp
-			PowerPC/JitArm32/JitArmCache.cpp
-			PowerPC/JitArm32/JitRegCache.cpp
-			PowerPC/JitArm32/JitFPRCache.cpp
-			PowerPC/JitArm32/JitArm_Branch.cpp
-			PowerPC/JitArm32/JitArm_Integer.cpp
-			PowerPC/JitArm32/JitArm_LoadStore.cpp
-			PowerPC/JitArm32/JitArm_FloatingPoint.cpp
-			PowerPC/JitArm32/JitArm_Paired.cpp
-			PowerPC/JitArm32/JitArm_LoadStorePaired.cpp
-			PowerPC/JitArm32/JitArm_SystemRegisters.cpp
-			PowerPC/JitArm32/JitArm_LoadStoreFloating.cpp
-			)
 elseif(_M_ARM_64)
 	set(SRCS ${SRCS}
 	         PowerPC/JitArm64/Jit.cpp

@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -360,7 +360,7 @@ public:
 	u16 GetFreeBlocks() const;
 
 	// If title already on memcard returns index, otherwise returns -1
-	u8 TitlePresent(DEntry d) const;
+	u8 TitlePresent(const DEntry& d) const;
 
 	bool GCI_FileName(u8 index, std::string &filename) const;
 	// DEntry functions, all take u8 index < DIRLEN (127)

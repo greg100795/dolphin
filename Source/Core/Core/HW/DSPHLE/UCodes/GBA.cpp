@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2010 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Core/ConfigManager.h"
@@ -29,7 +29,7 @@ void GBAUCode::Update()
 
 u32 GBAUCode::GetUpdateMs()
 {
-	return SConfig::GetInstance().m_LocalCoreStartupParameter.bWii ? 3 : 5;
+	return SConfig::GetInstance().bWii ? 3 : 5;
 }
 
 void GBAUCode::HandleMail(u32 mail)

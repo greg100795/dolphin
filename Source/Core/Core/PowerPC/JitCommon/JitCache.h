@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -125,6 +125,10 @@ class JitBaseBlockCache
 
 public:
 	JitBaseBlockCache() : num_blocks(0), m_initialized(false)
+	{
+	}
+
+	virtual ~JitBaseBlockCache()
 	{
 	}
 

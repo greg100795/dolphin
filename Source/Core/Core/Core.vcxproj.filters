@@ -144,7 +144,6 @@
     <ClCompile Include="BootManager.cpp" />
     <ClCompile Include="ConfigManager.cpp" />
     <ClCompile Include="Core.cpp" />
-    <ClCompile Include="CoreParameter.cpp" />
     <ClCompile Include="CoreTiming.cpp" />
     <ClCompile Include="ec_wii.cpp" />
     <ClCompile Include="HotkeyManager.cpp" />
@@ -610,6 +609,9 @@
     <ClCompile Include="HW\Wiimote.cpp">
       <Filter>HW %28Flipper/Hollywood%29\Wiimote</Filter>
     </ClCompile>
+    <ClCompile Include="PowerPC\CachedInterpreter.cpp">
+      <Filter>PowerPC</Filter>
+    </ClCompile>
     <ClCompile Include="PowerPC\JitInterface.cpp">
       <Filter>PowerPC</Filter>
     </ClCompile>
@@ -738,7 +740,6 @@
     <ClInclude Include="BootManager.h" />
     <ClInclude Include="ConfigManager.h" />
     <ClInclude Include="Core.h" />
-    <ClInclude Include="CoreParameter.h" />
     <ClInclude Include="CoreTiming.h" />
     <ClInclude Include="ec_wii.h" />
     <ClInclude Include="Host.h" />
@@ -1174,6 +1175,9 @@
       <Filter>PowerPC</Filter>
     </ClInclude>
     <ClInclude Include="PowerPC\Gekko.h">
+      <Filter>PowerPC</Filter>
+    </ClInclude>
+    <ClInclude Include="PowerPC\CachedInterpreter.h">
       <Filter>PowerPC</Filter>
     </ClInclude>
     <ClInclude Include="PowerPC\JitInterface.h">

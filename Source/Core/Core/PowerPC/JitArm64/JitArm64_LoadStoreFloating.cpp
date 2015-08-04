@@ -1,5 +1,5 @@
-// Copyright 2014 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2015 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Common/Arm64Emitter.h"
@@ -71,7 +71,9 @@ void JitArm64::lfXX(UGeckoInstruction inst)
 	u32 imm_addr = 0;
 	bool is_immediate = false;
 
-	fpr.BindToRegister(inst.FD, false);
+	// 64 bit loads only load PSR0
+	fpr.BindToRegister(inst.FD, flags & BackPatchInfo::FLAG_SIZE_F64);
+
 	ARM64Reg VD = fpr.R(inst.FD);
 	ARM64Reg addr_reg = W0;
 
@@ -196,8 +198,8 @@ void JitArm64::lfXX(UGeckoInstruction inst)
 		ABI_PushRegisters(regs_in_use);
 		m_float_emit.ABI_PushRegisters(fprs_in_use, X30);
 		EmitBackpatchRoutine(this, flags,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
+			jo.fastmem,
+			jo.fastmem,
 			VD, XA);
 		m_float_emit.ABI_PopRegisters(fprs_in_use, X30);
 		ABI_PopRegisters(regs_in_use);
@@ -230,6 +232,7 @@ void JitArm64::stfXX(UGeckoInstruction inst)
 				break;
 				case 695: // stfsux
 					flags |= BackPatchInfo::FLAG_SIZE_F32;
+					update = true;
 					offset_reg = b;
 				break;
 				case 727: // stfdx
@@ -360,10 +363,17 @@ void JitArm64::stfXX(UGeckoInstruction inst)
 
 	ARM64Reg XA = EncodeRegTo64(addr_reg);
 
-	if (is_immediate)
+	if (is_immediate && !(jit->jo.optimizeGatherPipe && PowerPC::IsOptimizableGatherPipeWrite(imm_addr)))
+	{
 		MOVI2R(XA, imm_addr);
 
-	if (update)
+		if (update)
+		{
+			gpr.BindToRegister(a, false);
+			MOV(gpr.R(a), addr_reg);
+		}
+	}
+	else if (!is_immediate && update)
 	{
 		gpr.BindToRegister(a, false);
 		MOV(gpr.R(a), addr_reg);
@@ -386,25 +396,44 @@ void JitArm64::stfXX(UGeckoInstruction inst)
 			else
 				accessSize = 32;
 
-			MOVI2R(X30, (u64)&GPFifo::m_gatherPipeCount);
-			MOVI2R(X1, (u64)GPFifo::m_gatherPipe);
-			LDR(INDEX_UNSIGNED, W0, X30, 0);
-			ADD(X1, X1, X0);
+			u64 base_ptr = std::min((u64)&GPFifo::m_gatherPipeCount, (u64)&GPFifo::m_gatherPipe);
+			u32 count_off = (u64)&GPFifo::m_gatherPipeCount - base_ptr;
+			u32 pipe_off = (u64)&GPFifo::m_gatherPipe - base_ptr;
+
+			MOVI2R(X30, base_ptr);
+
+			if (pipe_off)
+				ADD(X1, X30, pipe_off);
+
+			LDR(INDEX_UNSIGNED, W0, X30, count_off);
 			if (accessSize == 64)
 			{
 				m_float_emit.REV64(8, Q0, V0);
-				m_float_emit.STR(64, INDEX_UNSIGNED, Q0, X1, 0);
+				if (pipe_off)
+					m_float_emit.STR(64, Q0, X1, ArithOption(X0));
+				else
+					m_float_emit.STR(64, Q0, X30, ArithOption(X0));
 			}
 			else if (accessSize == 32)
 			{
 				m_float_emit.FCVT(32, 64, D0, EncodeRegToDouble(V0));
 				m_float_emit.REV32(8, D0, D0);
-				m_float_emit.STR(32, INDEX_UNSIGNED, D0, X1, 0);
+				if (pipe_off)
+					m_float_emit.STR(32, D0, X1, ArithOption(X0));
+				else
+					m_float_emit.STR(32, D0, X30, ArithOption(X0));
+
 			}
 			ADD(W0, W0, accessSize >> 3);
-			STR(INDEX_UNSIGNED, W0, X30, 0);
+			STR(INDEX_UNSIGNED, W0, X30, count_off);
 			jit->js.fifoBytesThisBlock += accessSize >> 3;
 
+			if (update)
+			{
+				// Chance of this happening is fairly low, but support it
+				gpr.BindToRegister(a, false);
+				MOVI2R(gpr.R(a), imm_addr);
+			}
 		}
 		else if (PowerPC::IsOptimizableRAMAddress(imm_addr))
 		{
@@ -426,8 +455,8 @@ void JitArm64::stfXX(UGeckoInstruction inst)
 		ABI_PushRegisters(regs_in_use);
 		m_float_emit.ABI_PushRegisters(fprs_in_use, X30);
 		EmitBackpatchRoutine(this, flags,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
+			jo.fastmem,
+			jo.fastmem,
 			V0, XA);
 		m_float_emit.ABI_PopRegisters(fprs_in_use, X30);
 		ABI_PopRegisters(regs_in_use);

@@ -1,5 +1,5 @@
 // Copyright 2014 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -18,6 +18,15 @@
 
 #define PPCSTATE_OFF(elem) (offsetof(PowerPC::PowerPCState, elem))
 
+// A place to throw blocks of code we don't want polluting the cache, e.g. rarely taken
+// exception branches.
+class FarCodeCacheArm64 : public Arm64Gen::ARM64CodeBlock
+{
+public:
+	void Init(int size) { AllocCodeSpace(size); }
+	void Shutdown() { FreeCodeSpace(); }
+};
+
 // Some asserts to make sure we will be able to load everything
 static_assert(PPCSTATE_OFF(spr[1023]) <= 16380, "LDR(32bit) can't reach the last SPR");
 static_assert((PPCSTATE_OFF(ps[0][0]) % 8) == 0, "LDR(64bit VFP) requires FPRs to be 8 byte aligned");
@@ -35,7 +44,7 @@ public:
 
 	JitBaseBlockCache *GetBlockCache() { return &blocks; }
 
-	bool IsInCodeSpace(u8 *ptr) { return IsInSpace(ptr); }
+	bool IsInCodeSpace(u8 *ptr) const { return IsInSpace(ptr); }
 
 	bool HandleFault(uintptr_t access_address, SContext* ctx) override;
 
@@ -97,6 +106,8 @@ public:
 	void addzex(UGeckoInstruction inst);
 	void subfx(UGeckoInstruction inst);
 	void addcx(UGeckoInstruction inst);
+	void slwx(UGeckoInstruction inst);
+	void rlwimix(UGeckoInstruction inst);
 
 	// System Registers
 	void mtmsr(UGeckoInstruction inst);
@@ -112,9 +123,10 @@ public:
 	void mtspr(UGeckoInstruction inst);
 
 	// LoadStore
-	void icbi(UGeckoInstruction inst);
 	void lXX(UGeckoInstruction inst);
 	void stX(UGeckoInstruction inst);
+	void lmw(UGeckoInstruction inst);
+	void stmw(UGeckoInstruction inst);
 
 	// LoadStore floating point
 	void lfXX(UGeckoInstruction inst);
@@ -182,6 +194,22 @@ private:
 
 	ARM64FloatEmitter m_float_emit;
 
+	FarCodeCacheArm64 farcode;
+	u8* nearcode; // Backed up when we switch to far code.
+
+	// Simple functions to switch between near and far code emitting
+	void SwitchToFarCode()
+	{
+		nearcode = GetWritableCodePtr();
+		SetCodePtr(farcode.GetWritableCodePtr());
+	}
+
+	void SwitchToNearCode()
+	{
+		farcode.SetCodePtr(GetWritableCodePtr());
+		SetCodePtr(nearcode);
+	}
+
 	// Dump a memory range of code
 	void DumpCode(const u8* start, const u8* end);
 
@@ -199,6 +227,10 @@ private:
 	const u8* DoJit(u32 em_address, PPCAnalyst::CodeBuffer *code_buf, JitBlock *b);
 
 	void DoDownCount();
+
+	// Profiling
+	void BeginTimeProfile(JitBlock* b);
+	void EndTimeProfile(JitBlock* b);
 
 	// Exits
 	void WriteExit(u32 destination);

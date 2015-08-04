@@ -1,5 +1,5 @@
 // Copyright 2014 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Common/Arm64Emitter.h"
@@ -86,6 +86,10 @@ void JitArm64AsmRoutineManager::Generate()
 	B(dispatcher);
 
 	SetJumpTarget(Exit);
+
+	// Let the waiting thread know we are done leaving
+	MOVI2R(X0, (u64)&PowerPC::FinishStateMove);
+	BLR(X0);
 
 	ABI_PopRegisters(regs_to_save);
 	RET(X30);
@@ -287,9 +291,10 @@ void JitArm64AsmRoutineManager::GenerateCommon()
 			ADD(scale_reg, X2, scale_reg, ArithOption(scale_reg, ST_LSL, 3));
 			float_emit.LDR(32, INDEX_UNSIGNED, D1, scale_reg, 0);
 			float_emit.FMUL(32, D0, D0, D1, 0);
+
 			float_emit.FCVTZU(32, D0, D0);
-			float_emit.XTN(16, D0, D0);
-			float_emit.XTN(8, D0, D0);
+			float_emit.UQXTN(16, D0, D0);
+			float_emit.UQXTN(8, D0, D0);
 		};
 
 		storePairedU8 = GetCodePtr();
@@ -314,9 +319,10 @@ void JitArm64AsmRoutineManager::GenerateCommon()
 			ADD(scale_reg, X2, scale_reg, ArithOption(scale_reg, ST_LSL, 3));
 			float_emit.LDR(32, INDEX_UNSIGNED, D1, scale_reg, 0);
 			float_emit.FMUL(32, D0, D0, D1, 0);
+
 			float_emit.FCVTZS(32, D0, D0);
-			float_emit.XTN(16, D0, D0);
-			float_emit.XTN(8, D0, D0);
+			float_emit.SQXTN(16, D0, D0);
+			float_emit.SQXTN(8, D0, D0);
 		};
 
 		storePairedS8 = GetCodePtr();
@@ -342,8 +348,9 @@ void JitArm64AsmRoutineManager::GenerateCommon()
 			ADD(scale_reg, X2, scale_reg, ArithOption(scale_reg, ST_LSL, 3));
 			float_emit.LDR(32, INDEX_UNSIGNED, D1, scale_reg, 0);
 			float_emit.FMUL(32, D0, D0, D1, 0);
+
 			float_emit.FCVTZU(32, D0, D0);
-			float_emit.XTN(16, D0, D0);
+			float_emit.UQXTN(16, D0, D0);
 			float_emit.REV16(8, D0, D0);
 		};
 
@@ -369,8 +376,9 @@ void JitArm64AsmRoutineManager::GenerateCommon()
 			ADD(scale_reg, X2, scale_reg, ArithOption(scale_reg, ST_LSL, 3));
 			float_emit.LDR(32, INDEX_UNSIGNED, D1, scale_reg, 0);
 			float_emit.FMUL(32, D0, D0, D1, 0);
+
 			float_emit.FCVTZS(32, D0, D0);
-			float_emit.XTN(16, D0, D0);
+			float_emit.SQXTN(16, D0, D0);
 			float_emit.REV16(8, D0, D0);
 		};
 
@@ -411,9 +419,10 @@ void JitArm64AsmRoutineManager::GenerateCommon()
 			ADD(scale_reg, X2, scale_reg, ArithOption(scale_reg, ST_LSL, 3));
 			float_emit.LDR(32, INDEX_UNSIGNED, D1, scale_reg, 0);
 			float_emit.FMUL(32, D0, D0, D1);
+
 			float_emit.FCVTZU(32, D0, D0);
-			float_emit.XTN(16, D0, D0);
-			float_emit.XTN(8, D0, D0);
+			float_emit.UQXTN(16, D0, D0);
+			float_emit.UQXTN(8, D0, D0);
 		};
 
 		storeSingleU8 = GetCodePtr();
@@ -437,9 +446,10 @@ void JitArm64AsmRoutineManager::GenerateCommon()
 			ADD(scale_reg, X2, scale_reg, ArithOption(scale_reg, ST_LSL, 3));
 			float_emit.LDR(32, INDEX_UNSIGNED, D1, scale_reg, 0);
 			float_emit.FMUL(32, D0, D0, D1);
+
 			float_emit.FCVTZS(32, D0, D0);
-			float_emit.XTN(16, D0, D0);
-			float_emit.XTN(8, D0, D0);
+			float_emit.SQXTN(16, D0, D0);
+			float_emit.SQXTN(8, D0, D0);
 		};
 
 		storeSingleS8 = GetCodePtr();
@@ -463,8 +473,9 @@ void JitArm64AsmRoutineManager::GenerateCommon()
 			ADD(scale_reg, X2, scale_reg, ArithOption(scale_reg, ST_LSL, 3));
 			float_emit.LDR(32, INDEX_UNSIGNED, D1, scale_reg, 0);
 			float_emit.FMUL(32, D0, D0, D1);
+
 			float_emit.FCVTZU(32, D0, D0);
-			float_emit.XTN(16, D0, D0);
+			float_emit.UQXTN(16, D0, D0);
 		};
 
 		storeSingleU16 = GetCodePtr();
@@ -489,8 +500,9 @@ void JitArm64AsmRoutineManager::GenerateCommon()
 			ADD(scale_reg, X2, scale_reg, ArithOption(scale_reg, ST_LSL, 3));
 			float_emit.LDR(32, INDEX_UNSIGNED, D1, scale_reg, 0);
 			float_emit.FMUL(32, D0, D0, D1);
+
 			float_emit.FCVTZS(32, D0, D0);
-			float_emit.XTN(16, D0, D0);
+			float_emit.SQXTN(16, D0, D0);
 		};
 
 		storeSingleS16 = GetCodePtr();

@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2009 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cstddef>
@@ -7,25 +7,16 @@
 #include <queue>
 #include <utility>
 #include <vector>
-#include <wx/anybutton.h>
 #include <wx/button.h>
-#include <wx/chartype.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/colour.h>
-#include <wx/defs.h>
-#include <wx/event.h>
 #include <wx/font.h>
-#include <wx/gdicmn.h>
 #include <wx/panel.h>
 #include <wx/sizer.h>
-#include <wx/string.h>
 #include <wx/textctrl.h>
 #include <wx/timer.h>
-#include <wx/translation.h>
 #include <wx/validate.h>
-#include <wx/window.h>
-#include <wx/windowid.h>
 #include <wx/aui/framemanager.h>
 
 #include "Common/CommonTypes.h"

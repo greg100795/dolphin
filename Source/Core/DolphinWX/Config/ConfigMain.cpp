@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2015 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <wx/notebook.h>
@@ -80,6 +80,8 @@ void CConfigMain::CreateGUIControls()
 	wxBoxSizer* const main_sizer = new wxBoxSizer(wxVERTICAL);
 	main_sizer->Add(Notebook, 1, wxEXPAND | wxALL, 5);
 	main_sizer->Add(CreateButtonSizer(wxOK), 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
+
+	main_sizer->SetMinSize(400, 0);
 
 	SetSizerAndFit(main_sizer);
 	Center();

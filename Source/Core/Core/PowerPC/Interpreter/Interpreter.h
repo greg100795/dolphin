@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -27,10 +27,6 @@ public:
 	void Run() override;
 	void ClearCache() override;
 	const char *GetName() override;
-
-	typedef void (*_interpreterInstruction)(UGeckoInstruction instCode);
-
-	_interpreterInstruction GetInstruction(UGeckoInstruction instCode);
 
 	void Log();
 
@@ -280,6 +276,7 @@ public:
 	static void sync(UGeckoInstruction _inst);
 	static void isync(UGeckoInstruction _inst);
 
+	typedef void(*_interpreterInstruction)(UGeckoInstruction instCode);
 	static _interpreterInstruction m_opTable[64];
 	static _interpreterInstruction m_opTable4[1024];
 	static _interpreterInstruction m_opTable19[1024];

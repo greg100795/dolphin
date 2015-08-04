@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Common/CommonTypes.h"
@@ -376,7 +376,7 @@ void Interpreter::dcbtst(UGeckoInstruction _inst)
 void Interpreter::dcbz(UGeckoInstruction _inst)
 {
 	// HACK but works... we think
-	if (!SConfig::GetInstance().m_LocalCoreStartupParameter.bDCBZOFF)
+	if (!SConfig::GetInstance().bDCBZOFF)
 		PowerPC::ClearCacheLine(Helper_Get_EA_X(_inst) & (~31));
 	if (!JitInterface::GetCore())
 		PowerPC::CheckExceptions();

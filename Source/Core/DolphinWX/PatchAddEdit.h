@@ -1,16 +1,11 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
 
 #include <vector>
 #include <wx/dialog.h>
-#include <wx/event.h>
-#include <wx/gdicmn.h>
-#include <wx/string.h>
-#include <wx/translation.h>
-#include <wx/windowid.h>
 
 #include "Core/PatchEngine.h"
 
@@ -20,7 +15,6 @@ class wxSpinButton;
 class wxSpinEvent;
 class wxStaticBoxSizer;
 class wxTextCtrl;
-class wxWindow;
 
 class CPatchAddEdit : public wxDialog
 {

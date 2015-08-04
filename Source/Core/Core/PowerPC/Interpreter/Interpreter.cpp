@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cinttypes>
@@ -195,7 +195,7 @@ void Interpreter::Run()
 	while (!PowerPC::GetState())
 	{
 		//we have to check exceptions at branches apparently (or maybe just rfi?)
-		if (SConfig::GetInstance().m_LocalCoreStartupParameter.bEnableDebugging)
+		if (SConfig::GetInstance().bEnableDebugging)
 		{
 			#ifdef SHOW_HISTORY
 				PCBlockVec.push_back(PC);
@@ -277,6 +277,9 @@ void Interpreter::Run()
 			PC = NPC;
 		}
 	}
+
+	// Let the waiting thread know we are done leaving
+	PowerPC::FinishStateMove();
 }
 
 void Interpreter::unknown_instruction(UGeckoInstruction _inst)

@@ -1,17 +1,19 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <algorithm>
 #include <cinttypes>
 #include <cmath>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "Common/Atomic.h"
 #include "Common/CommonPaths.h"
 #include "Common/FileUtil.h"
+#include "Common/MathUtil.h"
 #include "Common/StringUtil.h"
 #include "Common/Thread.h"
 #include "Common/Timer.h"
@@ -466,6 +468,11 @@ Renderer::Renderer()
 	g_Config.backend_info.bSupportsGSInstancing = GLExtensions::Supports("GL_ARB_gpu_shader5");
 	g_Config.backend_info.bSupportsGeometryShaders = GLExtensions::Version() >= 320;
 	g_Config.backend_info.bSupportsPaletteConversion = GLExtensions::Supports("GL_ARB_texture_buffer_object");
+	g_Config.backend_info.bSupportsClipControl = GLExtensions::Supports("GL_ARB_clip_control");
+	g_Config.backend_info.bSupportsCopySubImage = GLExtensions::Supports("GL_ARB_copy_image") ||
+	                                              GLExtensions::Supports("GL_NV_copy_image") ||
+	                                              GLExtensions::Supports("GL_EXT_copy_image") ||
+	                                              GLExtensions::Supports("GL_OES_copy_image");
 
 	// Desktop OpenGL supports the binding layout if it supports 420pack
 	// OpenGL ES 3.1 supports it implicitly without an extension
@@ -478,7 +485,7 @@ Renderer::Renderer()
 	                                     GLExtensions::Supports("GL_EXT_draw_elements_base_vertex") ||
 	                                     GLExtensions::Supports("GL_OES_draw_elements_base_vertex");
 	g_ogl_config.bSupportsGLBufferStorage = GLExtensions::Supports("GL_ARB_buffer_storage") ||
-	                                        GLExtensions::Supports("GL_EXT_buffer_storage");;
+	                                        GLExtensions::Supports("GL_EXT_buffer_storage");
 	g_ogl_config.bSupportsMSAA = GLExtensions::Supports("GL_ARB_texture_multisample");
 	g_ogl_config.bSupportSampleShading = GLExtensions::Supports("GL_ARB_sample_shading");
 	g_ogl_config.bSupportOGL31 = GLExtensions::Version() >= 310;
@@ -583,7 +590,7 @@ Renderer::Renderer()
 				g_ogl_config.gl_renderer,
 				g_ogl_config.gl_version), 5000);
 
-	WARN_LOG(VIDEO,"Missing OGL Extensions: %s%s%s%s%s%s%s%s%s%s%s",
+	WARN_LOG(VIDEO,"Missing OGL Extensions: %s%s%s%s%s%s%s%s%s%s%s%s%s",
 			g_ActiveConfig.backend_info.bSupportsDualSourceBlend ? "" : "DualSourceBlend ",
 			g_ActiveConfig.backend_info.bSupportsPrimitiveRestart ? "" : "PrimitiveRestart ",
 			g_ActiveConfig.backend_info.bSupportsEarlyZ ? "" : "EarlyZ ",
@@ -594,7 +601,9 @@ Renderer::Renderer()
 			g_ogl_config.bSupportsGLSync ? "" : "Sync ",
 			g_ogl_config.bSupportsMSAA ? "" : "MSAA ",
 			g_ogl_config.bSupportSampleShading ? "" : "SSAA ",
-			g_ActiveConfig.backend_info.bSupportsGSInstancing ? "" : "GSInstancing "
+			g_ActiveConfig.backend_info.bSupportsGSInstancing ? "" : "GSInstancing ",
+			g_ActiveConfig.backend_info.bSupportsClipControl ? "" : "ClipControl ",
+			g_ActiveConfig.backend_info.bSupportsCopySubImage ? "" : "CopyImageSubData "
 			);
 
 	s_last_multisample_mode = g_ActiveConfig.iMultisampleMode;
@@ -631,6 +640,8 @@ Renderer::Renderer()
 	glBlendFunc(GL_ONE, GL_ONE);
 
 	glViewport(0, 0, GetTargetWidth(), GetTargetHeight()); // Reset The Current Viewport
+	if (g_ActiveConfig.backend_info.bSupportsClipControl)
+		glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
 
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClearDepthf(1.0f);
@@ -914,7 +925,7 @@ void ClearEFBCache()
 	}
 }
 
-void Renderer::UpdateEFBCache(EFBAccessType type, u32 cacheRectIdx, const EFBRectangle& efbPixelRc, const TargetRectangle& targetPixelRc, const u32* data)
+void Renderer::UpdateEFBCache(EFBAccessType type, u32 cacheRectIdx, const EFBRectangle& efbPixelRc, const TargetRectangle& targetPixelRc, const void* data)
 {
 	u32 cacheType = (type == PEEK_Z ? 0 : 1);
 
@@ -936,7 +947,18 @@ void Renderer::UpdateEFBCache(EFBAccessType type, u32 cacheRectIdx, const EFBRec
 			u32 xEFB = efbPixelRc.left + xCache;
 			u32 xPixel = (EFBToScaledX(xEFB) + EFBToScaledX(xEFB + 1)) / 2;
 			u32 xData = xPixel - targetPixelRc.left;
-			s_efbCache[cacheType][cacheRectIdx][yCache * EFB_CACHE_RECT_SIZE + xCache] = data[yData * targetPixelRcWidth + xData];
+			u32 value;
+			if (type == PEEK_Z)
+			{
+				float* ptr = (float*)data;
+				value = MathUtil::Clamp<u32>((u32)(ptr[yData * targetPixelRcWidth + xData] * 16777216.0f), 0, 0xFFFFFF);
+			}
+			else
+			{
+				u32* ptr = (u32*)data;
+				value = ptr[yData * targetPixelRcWidth + xData];
+			}
+			s_efbCache[cacheType][cacheRectIdx][yCache * EFB_CACHE_RECT_SIZE + xCache] = value;
 		}
 	}
 
@@ -990,8 +1012,6 @@ u32 Renderer::AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data)
 	{
 	case PEEK_Z:
 		{
-			u32 z;
-
 			if (!s_efbCacheValid[0][cacheRectIdx])
 			{
 				if (s_MSAASamples > 1)
@@ -1005,32 +1025,22 @@ u32 Renderer::AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data)
 					g_renderer->RestoreAPIState();
 				}
 
-				u32* depthMap = new u32[targetPixelRcWidth * targetPixelRcHeight];
+				std::unique_ptr<float> depthMap(new float[targetPixelRcWidth * targetPixelRcHeight]);
 
 				glReadPixels(targetPixelRc.left, targetPixelRc.bottom, targetPixelRcWidth, targetPixelRcHeight,
-				             GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, depthMap);
+				             GL_DEPTH_COMPONENT, GL_FLOAT, depthMap.get());
 
-				UpdateEFBCache(type, cacheRectIdx, efbPixelRc, targetPixelRc, depthMap);
-
-				delete[] depthMap;
+				UpdateEFBCache(type, cacheRectIdx, efbPixelRc, targetPixelRc, depthMap.get());
 			}
 
 			u32 xRect = x % EFB_CACHE_RECT_SIZE;
 			u32 yRect = y % EFB_CACHE_RECT_SIZE;
-			z = s_efbCache[0][cacheRectIdx][yRect * EFB_CACHE_RECT_SIZE + xRect];
+			u32 z = s_efbCache[0][cacheRectIdx][yRect * EFB_CACHE_RECT_SIZE + xRect];
 
-			// Scale the 32-bit value returned by glReadPixels to a 24-bit
-			// value (GC uses a 24-bit Z-buffer).
-			// TODO: in RE0 this value is often off by one, which causes lighting to disappear
+			// if Z is in 16 bit format you must return a 16 bit integer
 			if (bpmem.zcontrol.pixel_format == PEControl::RGB565_Z16)
-			{
-				// if Z is in 16 bit format you must return a 16 bit integer
-				z = z >> 16;
-			}
-			else
-			{
 				z = z >> 8;
-			}
+
 			return z;
 		}
 
@@ -1041,9 +1051,6 @@ u32 Renderer::AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data)
 			// Tested in Killer 7, the first 8bits represent the alpha value which is used to
 			// determine if we're aiming at an enemy (0x80 / 0x88) or not (0x70)
 			// Wind Waker is also using it for the pictograph to determine the color of each pixel
-
-			u32 color;
-
 			if (!s_efbCacheValid[1][cacheRectIdx])
 			{
 				if (s_MSAASamples > 1)
@@ -1057,24 +1064,22 @@ u32 Renderer::AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data)
 					g_renderer->RestoreAPIState();
 				}
 
-				u32* colorMap = new u32[targetPixelRcWidth * targetPixelRcHeight];
+				std::unique_ptr<u32> colorMap(new u32[targetPixelRcWidth * targetPixelRcHeight]);
 
 				if (GLInterface->GetMode() == GLInterfaceMode::MODE_OPENGLES3)
 				// XXX: Swap colours
 					glReadPixels(targetPixelRc.left, targetPixelRc.bottom, targetPixelRcWidth, targetPixelRcHeight,
-						     GL_RGBA, GL_UNSIGNED_BYTE, colorMap);
+						     GL_RGBA, GL_UNSIGNED_BYTE, colorMap.get());
 				else
 					glReadPixels(targetPixelRc.left, targetPixelRc.bottom, targetPixelRcWidth, targetPixelRcHeight,
-						     GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, colorMap);
+						     GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, colorMap.get());
 
-				UpdateEFBCache(type, cacheRectIdx, efbPixelRc, targetPixelRc, colorMap);
-
-				delete[] colorMap;
+				UpdateEFBCache(type, cacheRectIdx, efbPixelRc, targetPixelRc, colorMap.get());
 			}
 
 			u32 xRect = x % EFB_CACHE_RECT_SIZE;
 			u32 yRect = y % EFB_CACHE_RECT_SIZE;
-			color = s_efbCache[1][cacheRectIdx][yRect * EFB_CACHE_RECT_SIZE + xRect];
+			u32 color = s_efbCache[1][cacheRectIdx][yRect * EFB_CACHE_RECT_SIZE + xRect];
 
 			// check what to do with the alpha channel (GX_PokeAlphaRead)
 			PixelEngine::UPEAlphaReadReg alpha_read_mode = PixelEngine::GetAlphaReadMode();
@@ -1109,44 +1114,15 @@ u32 Renderer::AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data)
 		}
 
 	case POKE_COLOR:
-	{
-		ResetAPIState();
-
-		glClearColor(float((poke_data >> 16) & 0xFF) / 255.0f,
-		             float((poke_data >>  8) & 0xFF) / 255.0f,
-		             float((poke_data >>  0) & 0xFF) / 255.0f,
-		             float((poke_data >> 24) & 0xFF) / 255.0f);
-
-		glEnable(GL_SCISSOR_TEST);
-		glScissor(targetPixelRc.left, targetPixelRc.bottom, targetPixelRc.GetWidth(), targetPixelRc.GetHeight());
-
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		RestoreAPIState();
-
-		// TODO: Could just update the EFB cache with the new value
-		ClearEFBCache();
-
-		break;
-	}
-
 	case POKE_Z:
 	{
-		ResetAPIState();
-
-		glDepthMask(GL_TRUE);
-		glClearDepthf(float(poke_data & 0xFFFFFF) / float(0xFFFFFF));
-
-		glEnable(GL_SCISSOR_TEST);
-		glScissor(targetPixelRc.left, targetPixelRc.bottom, targetPixelRc.GetWidth(), targetPixelRc.GetHeight());
-
-		glClear(GL_DEPTH_BUFFER_BIT);
-
-		RestoreAPIState();
-
-		// TODO: Could just update the EFB cache with the new value
-		ClearEFBCache();
-
+		std::vector<EfbPokeData> vector;
+		EfbPokeData d;
+		d.x = x;
+		d.y = y;
+		d.data = poke_data;
+		vector.push_back(d);
+		PokeEFB(type, vector);
 		break;
 	}
 
@@ -1155,6 +1131,11 @@ u32 Renderer::AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data)
 	}
 
 	return 0;
+}
+
+void Renderer::PokeEFB(EFBAccessType type, const std::vector<EfbPokeData>& data)
+{
+	FramebufferManager::PokeEFB(type, data);
 }
 
 u16 Renderer::BBoxRead(int index)
@@ -1221,8 +1202,8 @@ void Renderer::SetViewport()
 	float Y = EFBToScaledYf((float)EFB_HEIGHT - xfmem.viewport.yOrig + xfmem.viewport.ht + (float)scissorYOff);
 	float Width = EFBToScaledXf(2.0f * xfmem.viewport.wd);
 	float Height = EFBToScaledYf(-2.0f * xfmem.viewport.ht);
-	float GLNear = (xfmem.viewport.farZ - xfmem.viewport.zRange) / 16777216.0f;
-	float GLFar = xfmem.viewport.farZ / 16777216.0f;
+	float GLNear = MathUtil::Clamp<float>(xfmem.viewport.farZ - MathUtil::Clamp<float>(xfmem.viewport.zRange, -16777215.0f, 16777215.0f), 0.0f, 16777215.0f) / 16777216.0f;
+	float GLFar = MathUtil::Clamp<float>(xfmem.viewport.farZ, 0.0f, 16777215.0f) / 16777216.0f;
 	if (Width < 0)
 	{
 		X += Width;
@@ -1247,7 +1228,7 @@ void Renderer::SetViewport()
 		};
 		glViewport(iceilf(X), iceilf(Y), iceilf(Width), iceilf(Height));
 	}
-	glDepthRangef(GLNear, GLFar);
+	glDepthRangef(GLFar, GLNear);
 }
 
 void Renderer::ClearScreen(const EFBRectangle& rc, bool colorEnable, bool alphaEnable, bool zEnable, u32 color, u32 z)
@@ -1269,7 +1250,7 @@ void Renderer::ClearScreen(const EFBRectangle& rc, bool colorEnable, bool alphaE
 	// depth
 	glDepthMask(zEnable ? GL_TRUE : GL_FALSE);
 
-	glClearDepthf(float(z & 0xFFFFFF) / float(0xFFFFFF));
+	glClearDepthf(float(z & 0xFFFFFF) / 16777216.0f);
 
 	// Update rect for clearing the picture
 	glEnable(GL_SCISSOR_TEST);
@@ -1475,10 +1456,16 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 			xfbSource = (const XFBSource*) xfbSourceList[i];
 
 			TargetRectangle drawRc;
+			TargetRectangle sourceRc;
+			sourceRc.left = xfbSource->sourceRc.left;
+			sourceRc.right = xfbSource->sourceRc.right;
+			sourceRc.top = xfbSource->sourceRc.top;
+			sourceRc.bottom = xfbSource->sourceRc.bottom;
 
 			if (g_ActiveConfig.bUseRealXFB)
 			{
 				drawRc = flipped_trc;
+				sourceRc.right -= fbStride - fbWidth;
 			}
 			else
 			{
@@ -1500,17 +1487,11 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 				//drawRc.bottom *= vScale;
 				//drawRc.left *= hScale;
 				//drawRc.right *= hScale;
+
+				sourceRc.right -= Renderer::EFBToScaledX(fbStride - fbWidth);
 			}
 			// Tell the OSD Menu about the current internal resolution
 			OSDInternalW = xfbSource->sourceRc.GetWidth(); OSDInternalH = xfbSource->sourceRc.GetHeight();
-
-			TargetRectangle sourceRc;
-			sourceRc.left = xfbSource->sourceRc.left;
-			sourceRc.right = xfbSource->sourceRc.right;
-			sourceRc.top = xfbSource->sourceRc.top;
-			sourceRc.bottom = xfbSource->sourceRc.bottom;
-
-			sourceRc.right -= Renderer::EFBToScaledX(fbStride - fbWidth);
 
 			BlitScreen(sourceRc, drawRc, xfbSource->texture, xfbSource->texWidth, xfbSource->texHeight);
 		}
@@ -1530,10 +1511,14 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 	if (s_bScreenshot)
 	{
 		std::lock_guard<std::mutex> lk(s_criticalScreenshot);
-		SaveScreenshot(s_sScreenshotName, flipped_trc);
+
+		if (SaveScreenshot(s_sScreenshotName, flipped_trc))
+			OSD::AddMessage("Screenshot saved to " + s_sScreenshotName);
+
 		// Reset settings
 		s_sScreenshotName.clear();
 		s_bScreenshot = false;
+		s_screenshotCompleted.Set();
 	}
 
 	// Frame dumps are handled a little differently in Windows
@@ -1669,14 +1654,18 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 		s_backbuffer_height = H;
 		s_last_efb_scale = g_ActiveConfig.iEFBScale;
 	}
-
-	if (xfbchanged || WindowResized || (s_last_multisample_mode != g_ActiveConfig.iMultisampleMode) || (s_last_stereo_mode != (g_ActiveConfig.iStereoMode > 0)))
+	bool TargetSizeChanged = false;
+	if (CalculateTargetSize(s_backbuffer_width, s_backbuffer_height))
+	{
+		TargetSizeChanged = true;
+	}
+	if (TargetSizeChanged || xfbchanged || WindowResized || (s_last_multisample_mode != g_ActiveConfig.iMultisampleMode) || (s_last_stereo_mode != (g_ActiveConfig.iStereoMode > 0)))
 	{
 		s_last_xfb_mode = g_ActiveConfig.bUseRealXFB;
 
 		UpdateDrawRectangle(s_backbuffer_width, s_backbuffer_height);
 
-		if (CalculateTargetSize(s_backbuffer_width, s_backbuffer_height) || s_last_multisample_mode != g_ActiveConfig.iMultisampleMode || s_last_stereo_mode != (g_ActiveConfig.iStereoMode > 0))
+		if (TargetSizeChanged || s_last_multisample_mode != g_ActiveConfig.iMultisampleMode || s_last_stereo_mode != (g_ActiveConfig.iStereoMode > 0))
 		{
 			s_last_stereo_mode = g_ActiveConfig.iStereoMode > 0;
 			s_last_multisample_mode = g_ActiveConfig.iMultisampleMode;

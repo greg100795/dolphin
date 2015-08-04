@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2014 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -8,7 +8,7 @@
 #include <string>
 #include <type_traits>
 
-#include "Common/Common.h"
+#include "Common/CommonTypes.h"
 #include "Core/ConfigManager.h"
 #include "Core/HW/MMIOHandlers.h"
 
@@ -46,7 +46,7 @@ inline bool IsMMIOAddress(u32 address)
 	if ((address & 0xFFFF0000) == 0x0C000000)
 		return true; // GameCube MMIOs
 
-	if(SConfig::GetInstance().m_LocalCoreStartupParameter.bWii)
+	if(SConfig::GetInstance().bWii)
 	{
 		return ((address & 0xFFFF0000) == 0x0D000000) || // Wii MMIOs
 		       ((address & 0xFFFF0000) == 0x0D800000);   // Mirror of Wii MMIOs

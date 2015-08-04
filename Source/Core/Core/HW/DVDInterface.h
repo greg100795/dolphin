@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -7,9 +7,9 @@
 #include <string>
 
 #include "Common/CommonTypes.h"
-#include "DiscIO/Volume.h"
 
 class PointerWrap;
+namespace DiscIO { class IVolume; }
 namespace MMIO { class Mapping; }
 
 namespace DVDInterface
@@ -79,7 +79,7 @@ enum DICommand
 	DVDLowAudioBufferConfig = 0xe4
 };
 
-enum DIInterruptType
+enum DIInterruptType : int
 {
 	INT_DEINT = 0,
 	INT_TCINT = 1,

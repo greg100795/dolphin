@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #ifdef _WIN32
@@ -117,7 +117,7 @@ void ROMUCode::BootUCode()
 
 u32 ROMUCode::GetUpdateMs()
 {
-	return SConfig::GetInstance().m_LocalCoreStartupParameter.bWii ? 3 : 5;
+	return SConfig::GetInstance().bWii ? 3 : 5;
 }
 
 void ROMUCode::DoState(PointerWrap &p)

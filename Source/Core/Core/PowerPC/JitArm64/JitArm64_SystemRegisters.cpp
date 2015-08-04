@@ -1,5 +1,5 @@
 // Copyright 2014 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Common/Arm64Emitter.h"
@@ -48,8 +48,7 @@ FixupBranch JitArm64::JumpIfCRFieldBit(int field, int bit, bool jump_if_set)
 void JitArm64::mtmsr(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
-	// Don't interpret this, if we do we get thrown out
-	//JITDISABLE(bJITSystemRegistersOff)
+	JITDISABLE(bJITSystemRegistersOff);
 
 	gpr.BindToRegister(inst.RS, true);
 	STR(INDEX_UNSIGNED, gpr.R(inst.RS), X29, PPCSTATE_OFF(msr));
@@ -143,7 +142,7 @@ void JitArm64::mtsrin(UGeckoInstruction inst)
 void JitArm64::twx(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
-	JITDISABLE(bJITIntegerOff);
+	JITDISABLE(bJITSystemRegistersOff);
 
 	s32 a = inst.RA;
 
@@ -185,6 +184,10 @@ void JitArm64::twx(UGeckoInstruction inst)
 		SetJumpTarget(fixup);
 	}
 
+	FixupBranch far = B();
+	SwitchToFarCode();
+	SetJumpTarget(far);
+
 	gpr.Flush(FlushMode::FLUSH_MAINTAIN_STATE);
 	fpr.Flush(FlushMode::FLUSH_MAINTAIN_STATE);
 
@@ -196,6 +199,8 @@ void JitArm64::twx(UGeckoInstruction inst)
 
 	// WA is unlocked in this function
 	WriteExceptionExit(WA);
+
+	SwitchToNearCode();
 
 	SetJumpTarget(dont_trap);
 

@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2015 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cstddef>
@@ -28,7 +28,6 @@
 #include "Common/IniFile.h"
 
 #include "Core/ConfigManager.h"
-#include "Core/CoreParameter.h"
 #include "Core/NetPlayClient.h"
 #include "Core/NetPlayProto.h"
 #include "Core/NetPlayServer.h"
@@ -69,7 +68,7 @@ static wxString FailureReasonStringForHostLabel(int reason)
 static std::string BuildGameName(const GameListItem& game)
 {
 	// Lang needs to be consistent
-	auto const lang = 0;
+	DiscIO::IVolume::ELanguage const lang = DiscIO::IVolume::LANGUAGE_ENGLISH;
 
 	std::string name(game.GetName(lang));
 
@@ -251,9 +250,13 @@ void NetPlayDialog::OnChat(wxCommandEvent&)
 void NetPlayDialog::GetNetSettings(NetSettings &settings)
 {
 	SConfig &instance = SConfig::GetInstance();
-	settings.m_CPUthread = instance.m_LocalCoreStartupParameter.bCPUThread;
-	settings.m_CPUcore = instance.m_LocalCoreStartupParameter.iCPUCore;
-	settings.m_DSPHLE = instance.m_LocalCoreStartupParameter.bDSPHLE;
+	settings.m_CPUthread = instance.bCPUThread;
+	settings.m_CPUcore = instance.iCPUCore;
+	settings.m_SelectedLanguage = instance.SelectedLanguage;
+	settings.m_OverrideGCLanguage = instance.bOverrideGCLanguage;
+	settings.m_ProgressiveScan = instance.bProgressive;
+	settings.m_PAL60 = instance.bPAL60;
+	settings.m_DSPHLE = instance.bDSPHLE;
 	settings.m_DSPEnableJIT = instance.m_DSPEnableJIT;
 	settings.m_WriteToMemcard = m_memcard_write->GetValue();
 	settings.m_OCEnable = instance.m_OCEnable;

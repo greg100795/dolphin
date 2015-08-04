@@ -1,26 +1,16 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2011 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cstddef>
 #include <wx/bitmap.h>
-#include <wx/chartype.h>
 #include <wx/checkbox.h>
 #include <wx/dcmemory.h>
-#include <wx/defs.h>
 #include <wx/dialog.h>
-#include <wx/event.h>
-#include <wx/gdicmn.h>
-#include <wx/layout.h>
 #include <wx/sizer.h>
 #include <wx/slider.h>
 #include <wx/statbmp.h>
-#include <wx/string.h>
 #include <wx/textctrl.h>
-#include <wx/translation.h>
-#include <wx/validate.h>
-#include <wx/window.h>
-#include <wx/windowid.h>
 
 #include "Common/CommonTypes.h"
 #include "Core/Movie.h"
@@ -77,6 +67,7 @@ void TASInputDlg::CreateBaseLayout()
 	m_buttons_dpad->AddSpacer(20);
 
 	Bind(wxEVT_CLOSE_WINDOW, &TASInputDlg::OnCloseWindow, this);
+	Bind(wxEVT_TEXT, &TASInputDlg::UpdateFromText, this);
 }
 
 const int TASInputDlg::m_gc_pad_buttons_bitmask[12] = {
@@ -481,30 +472,45 @@ void TASInputDlg::SetStickValue(bool* ActivatedByKeyboard, int* AmountPressed, w
 	{
 		*AmountPressed = CurrentValue;
 		*ActivatedByKeyboard = true;
-		Textbox->SetValue(std::to_string(*AmountPressed));
 	}
 	else if (*ActivatedByKeyboard)
 	{
 		*AmountPressed = center;
 		*ActivatedByKeyboard = false;
-		Textbox->SetValue(std::to_string(*AmountPressed));
 	}
+	else
+	{
+		return;
+	}
+
+	Textbox->ChangeValue(std::to_string(*AmountPressed));
+	wxCommandEvent* evt = new wxCommandEvent(wxEVT_TEXT, Textbox->GetId());
+	evt->SetEventObject(Textbox);
+	wxQueueEvent(this, evt);
 }
 
 void TASInputDlg::SetSliderValue(Control* control, int CurrentValue)
 {
-	if (CurrentValue != control->default_value)
+	if (CurrentValue != (int)control->default_value)
 	{
 		control->value = CurrentValue;
 		control->set_by_keyboard = true;
-		control->text->SetValue(std::to_string(CurrentValue));
+		control->text->ChangeValue(std::to_string(CurrentValue));
 	}
 	else if (control->set_by_keyboard)
 	{
 		control->value = control->default_value;
 		control->set_by_keyboard = false;
-		control->text->SetValue(std::to_string(control->default_value));
+		control->text->ChangeValue(std::to_string(control->default_value));
 	}
+	else
+	{
+		return;
+	}
+
+	wxCommandEvent* evt = new wxCommandEvent(wxEVT_TEXT, control->text_id);
+	evt->SetEventObject(control->text);
+	wxQueueEvent(this, evt);
 }
 
 void TASInputDlg::SetButtonValue(Button* button, bool CurrentState)
@@ -770,8 +776,8 @@ void TASInputDlg::GetValues(GCPadStatus* PadStatus)
 	PadStatus->stickY = m_main_stick.y_cont.value;
 	PadStatus->substickX = m_c_stick.x_cont.value;
 	PadStatus->substickY = m_c_stick.y_cont.value;
-	PadStatus->triggerLeft = m_l.checkbox->GetValue() ? 255 : m_l_cont.slider->GetValue();
-	PadStatus->triggerRight = m_r.checkbox->GetValue() ? 255 : m_r_cont.slider->GetValue();
+	PadStatus->triggerLeft = m_l.checkbox->GetValue() ? 255 : m_l_cont.value;
+	PadStatus->triggerRight = m_r.checkbox->GetValue() ? 255 : m_r_cont.value;
 
 	for (unsigned int i = 0; i < ArraySize(m_buttons); ++i)
 	{
@@ -862,7 +868,9 @@ void TASInputDlg::UpdateStickBitmap(Stick stick)
 		x = 256 - (u8)x;
 	if (stick.y_cont.reverse)
 		y = 256 - (u8)y;
-	stick.bitmap->SetBitmap(CreateStickBitmap(x, y));
+    	// If TASInputDlg::UpdateFromText(wxCommandEvent&) interrupts stick initialization, this bitmap is a nullptr
+    	if (stick.bitmap != nullptr)
+        	stick.bitmap->SetBitmap(CreateStickBitmap(x, y));
 }
 
 void TASInputDlg::OnCloseWindow(wxCloseEvent& event)

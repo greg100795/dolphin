@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cassert>
@@ -144,7 +144,6 @@ template<class T> static inline void WriteTevRegular(T& out, const char* compone
 template<class T> static inline void SampleTexture(T& out, const char *texcoords, const char *texswap, int texmap, API_TYPE ApiType);
 template<class T> static inline void WriteAlphaTest(T& out, pixel_shader_uid_data* uid_data, API_TYPE ApiType,DSTALPHA_MODE dstAlphaMode, bool per_pixel_depth);
 template<class T> static inline void WriteFog(T& out, pixel_shader_uid_data* uid_data);
-template<class T> static inline void WritePerPixelDepth(T& out, pixel_shader_uid_data* uid_data, API_TYPE ApiType);
 
 template<class T>
 static inline void GeneratePixelShader(T& out, DSTALPHA_MODE dstAlphaMode, API_TYPE ApiType, u32 components)
@@ -197,6 +196,29 @@ static inline void GeneratePixelShader(T& out, DSTALPHA_MODE dstAlphaMode, API_T
 	          "int3 itrunc(float3 x) { return int3(trunc(x)); }\n"
 	          "int4 itrunc(float4 x) { return int4(trunc(x)); }\n\n");
 
+	if (DriverDetails::HasBug(DriverDetails::BUG_BROKENIVECSHIFTS))
+	{
+		// Add functions to do shifts on scalars and ivecs.
+		// These functions all have the same name to enable them to be used no matter what code is generated.
+		// For example: tev color op code uses .rgb as a swizzle, but alpha code only uses .a.
+		out.Write("int ilshift(int a, int b) { return a << b; }\n"
+		          "int irshift(int a, int b) { return a >> b; }\n"
+
+		          "int2 ilshift(int2 a, int2 b) { return int2(a.x << b.x, a.y << b.y); }\n"
+		          "int2 ilshift(int2 a, int b) { return int2(a.x << b, a.y << b); }\n"
+		          "int2 irshift(int2 a, int2 b) { return int2(a.x >> b.x, a.y >> b.y); }\n"
+		          "int2 irshift(int2 a, int b) { return int2(a.x >> b, a.y >> b); }\n"
+
+		          "int3 ilshift(int3 a, int3 b) { return int3(a.x << b.x, a.y << b.y, a.z << b.z); }\n"
+		          "int3 ilshift(int3 a, int b) { return int3(a.x << b, a.y << b, a.z << b); }\n"
+		          "int3 irshift(int3 a, int3 b) { return int3(a.x >> b.x, a.y >> b.y, a.z >> b.z); }\n"
+		          "int3 irshift(int3 a, int b) { return int3(a.x >> b, a.y >> b, a.z >> b); }\n"
+
+		          "int4 ilshift(int4 a, int4 b) { return int4(a.x << b.x, a.y << b.y, a.z << b.z, a.w << b.w); }\n"
+		          "int4 ilshift(int4 a, int b) { return int4(a.x << b, a.y << b, a.z << b, a.w << b); }\n"
+		          "int4 irshift(int4 a, int4 b) { return int4(a.x >> b.x, a.y >> b.y, a.z >> b.z, a.w >> b.w); }\n"
+		          "int4 irshift(int4 a, int b) { return int4(a.x >> b, a.y >> b, a.z >> b, a.w >> b); }\n\n");
+	}
 
 	if (ApiType == API_OPENGL)
 	{
@@ -255,7 +277,7 @@ static inline void GeneratePixelShader(T& out, DSTALPHA_MODE dstAlphaMode, API_T
 		out.Write("};\n");
 	}
 
-	if (g_ActiveConfig.backend_info.bSupportsBBox)
+	if (g_ActiveConfig.backend_info.bSupportsBBox && g_ActiveConfig.bBBoxEnable)
 	{
 		if (ApiType == API_OPENGL)
 		{
@@ -477,7 +499,11 @@ static inline void GeneratePixelShader(T& out, DSTALPHA_MODE dstAlphaMode, API_T
 			if (texcoord < numTexgen)
 			{
 				out.SetConstantsUsed(C_INDTEXSCALE+i/2,C_INDTEXSCALE+i/2);
-				out.Write("\ttempcoord = fixpoint_uv%d >> " I_INDTEXSCALE"[%d].%s;\n", texcoord, i / 2, (i & 1) ? "zw" : "xy");
+
+				if (DriverDetails::HasBug(DriverDetails::BUG_BROKENIVECSHIFTS))
+					out.Write("\ttempcoord = irshift(fixpoint_uv%d, " I_INDTEXSCALE"[%d].%s);\n", texcoord, i / 2, (i & 1) ? "zw" : "xy");
+				else
+					out.Write("\ttempcoord = fixpoint_uv%d >> " I_INDTEXSCALE"[%d].%s;\n", texcoord, i / 2, (i & 1) ? "zw" : "xy");
 			}
 			else
 				out.Write("\ttempcoord = int2(0, 0);\n");
@@ -530,19 +556,38 @@ static inline void GeneratePixelShader(T& out, DSTALPHA_MODE dstAlphaMode, API_T
 	if (Pretest == AlphaTest::UNDETERMINED || (Pretest == AlphaTest::FAIL && bpmem.UseLateDepthTest()))
 		WriteAlphaTest<T>(out, uid_data, ApiType, dstAlphaMode, per_pixel_depth);
 
-	// FastDepth means to trust the depth generated in perspective division.
-	// It should be correct, but it seems not to be as accurate as required. TODO: Find out why!
-	// For disabled FastDepth we just calculate the depth value again.
-	// The performance impact of this additional calculation doesn't matter, but it prevents
-	// the host GPU driver from performing any early depth test optimizations.
-	if (g_ActiveConfig.bFastDepthCalc)
-		out.Write("\tint zCoord = iround(rawpos.z * float(0xFFFFFF));\n");
-	else
+	if (bpmem.genMode.zfreeze)
 	{
+		out.SetConstantsUsed(C_ZSLOPE, C_ZSLOPE);
+		out.SetConstantsUsed(C_EFBSCALE, C_EFBSCALE);
+
+		out.Write("\tfloat2 screenpos = rawpos.xy * " I_EFBSCALE".xy;\n");
+
+		// Opengl has reversed vertical screenspace coordiantes
+		if (ApiType == API_OPENGL)
+			out.Write("\tscreenpos.y = %i - screenpos.y;\n", EFB_HEIGHT);
+
+		out.Write("\tint zCoord = int(" I_ZSLOPE".z + " I_ZSLOPE".x * screenpos.x + " I_ZSLOPE".y * screenpos.y);\n");
+	}
+	else if (!g_ActiveConfig.bFastDepthCalc)
+	{
+		// FastDepth means to trust the depth generated in perspective division.
+		// It should be correct, but it seems not to be as accurate as required. TODO: Find out why!
+		// For disabled FastDepth we just calculate the depth value again.
+		// The performance impact of this additional calculation doesn't matter, but it prevents
+		// the host GPU driver from performing any early depth test optimizations.
 		out.SetConstantsUsed(C_ZBIAS+1, C_ZBIAS+1);
 		// the screen space depth value = far z + (clip z / clip w) * z range
-		out.Write("\tint zCoord = " I_ZBIAS"[1].x + iround((clipPos.z / clipPos.w) * float(" I_ZBIAS"[1].y));\n");
+		out.Write("\tint zCoord = " I_ZBIAS"[1].x + int((clipPos.z / clipPos.w) * float(" I_ZBIAS"[1].y));\n");
 	}
+	else
+	{
+		if (ApiType == API_D3D)
+			out.Write("\tint zCoord = int((1.0 - rawpos.z) * 16777216.0);\n");
+		else
+			out.Write("\tint zCoord = int(rawpos.z * 16777216.0);\n");
+	}
+	out.Write("\tzCoord = clamp(zCoord, 0, 0xFFFFFF);\n");
 
 	// depth texture can safely be ignored if the result won't be written to the depth buffer (early_ztest) and isn't used for fog either
 	const bool skip_ztexture = !per_pixel_depth && !bpmem.fog.c_proj_fsel.fsel;
@@ -558,7 +603,10 @@ static inline void GeneratePixelShader(T& out, DSTALPHA_MODE dstAlphaMode, API_T
 	// Note: z-textures are not written to depth buffer if early depth test is used
 	if (per_pixel_depth && bpmem.UseEarlyDepthTest())
 	{
-		WritePerPixelDepth<T>(out, uid_data, ApiType);
+		if (ApiType == API_D3D)
+			out.Write("\tdepth = 1.0 - float(zCoord) / 16777216.0;\n");
+		else
+			out.Write("\tdepth = float(zCoord) / 16777216.0;\n");
 	}
 
 	// Note: depth texture output is only written to depth buffer if late depth test is used
@@ -574,7 +622,10 @@ static inline void GeneratePixelShader(T& out, DSTALPHA_MODE dstAlphaMode, API_T
 
 	if (per_pixel_depth && bpmem.UseLateDepthTest())
 	{
-		WritePerPixelDepth<T>(out, uid_data, ApiType);
+		if (ApiType == API_D3D)
+			out.Write("\tdepth = 1.0 - float(zCoord) / 16777216.0;\n");
+		else
+			out.Write("\tdepth = float(zCoord) / 16777216.0;\n");
 	}
 
 	if (dstAlphaMode == DSTALPHA_ALPHA_PASS)
@@ -599,7 +650,7 @@ static inline void GeneratePixelShader(T& out, DSTALPHA_MODE dstAlphaMode, API_T
 		out.Write("\tocol0.a = float(" I_ALPHA".a) / 255.0;\n");
 	}
 
-	if (g_ActiveConfig.backend_info.bSupportsBBox && BoundingBox::active)
+	if (g_ActiveConfig.backend_info.bSupportsBBox && g_ActiveConfig.bBBoxEnable && BoundingBox::active)
 	{
 		uid_data->bounding_box = true;
 		const char* atomic_op = ApiType == API_OPENGL ? "atomic" : "Interlocked";
@@ -678,31 +729,64 @@ static inline void WriteStage(T& out, pixel_shader_uid_data* uid_data, int n, AP
 				int mtxidx = 2*(bpmem.tevind[n].mid-1);
 				out.SetConstantsUsed(C_INDTEXMTX+mtxidx, C_INDTEXMTX+mtxidx);
 
-				out.Write("\tint2 indtevtrans%d = int2(idot(" I_INDTEXMTX"[%d].xyz, iindtevcrd%d), idot(" I_INDTEXMTX"[%d].xyz, iindtevcrd%d)) >> 3;\n", n, mtxidx, n, mtxidx+1, n);
+				if (DriverDetails::HasBug(DriverDetails::BUG_BROKENIVECSHIFTS))
+				{
+					out.Write("\tint2 indtevtrans%d = irshift(int2(idot(" I_INDTEXMTX"[%d].xyz, iindtevcrd%d), idot(" I_INDTEXMTX"[%d].xyz, iindtevcrd%d)), 3);\n", n, mtxidx, n, mtxidx+1, n);
 
-				// TODO: should use a shader uid branch for this for better performance
-				out.Write("\tif (" I_INDTEXMTX"[%d].w >= 0) indtevtrans%d = indtevtrans%d >> " I_INDTEXMTX"[%d].w;\n", mtxidx, n, n, mtxidx);
-				out.Write("\telse indtevtrans%d = indtevtrans%d << (-" I_INDTEXMTX"[%d].w);\n", n, n, mtxidx);
+					// TODO: should use a shader uid branch for this for better performance
+					out.Write("\tif (" I_INDTEXMTX"[%d].w >= 0) indtevtrans%d = irshift(indtevtrans%d, " I_INDTEXMTX"[%d].w);\n", mtxidx, n, n, mtxidx);
+					out.Write("\telse indtevtrans%d = ilshift(indtevtrans%d, -" I_INDTEXMTX"[%d].w);\n", n, n, mtxidx);
+				}
+				else
+				{
+					out.Write("\tint2 indtevtrans%d = int2(idot(" I_INDTEXMTX"[%d].xyz, iindtevcrd%d), idot(" I_INDTEXMTX"[%d].xyz, iindtevcrd%d)) >> 3;\n", n, mtxidx, n, mtxidx+1, n);
+
+					// TODO: should use a shader uid branch for this for better performance
+					out.Write("\tif (" I_INDTEXMTX"[%d].w >= 0) indtevtrans%d = indtevtrans%d >> " I_INDTEXMTX"[%d].w;\n", mtxidx, n, n, mtxidx);
+					out.Write("\telse indtevtrans%d = indtevtrans%d << (-" I_INDTEXMTX"[%d].w);\n", n, n, mtxidx);
+				}
 			}
 			else if (bpmem.tevind[n].mid <= 7 && bHasTexCoord)
 			{ // s matrix
 				_assert_(bpmem.tevind[n].mid >= 5);
 				int mtxidx = 2*(bpmem.tevind[n].mid-5);
 				out.SetConstantsUsed(C_INDTEXMTX+mtxidx, C_INDTEXMTX+mtxidx);
-				out.Write("\tint2 indtevtrans%d = int2(fixpoint_uv%d * iindtevcrd%d.xx) >> 8;\n", n, texcoord, n);
 
-				out.Write("\tif (" I_INDTEXMTX"[%d].w >= 0) indtevtrans%d = indtevtrans%d >> " I_INDTEXMTX"[%d].w;\n", mtxidx, n, n, mtxidx);
-				out.Write("\telse indtevtrans%d = indtevtrans%d << (-" I_INDTEXMTX"[%d].w);\n", n, n, mtxidx);
+				if (DriverDetails::HasBug(DriverDetails::BUG_BROKENIVECSHIFTS))
+				{
+					out.Write("\tint2 indtevtrans%d = irshift(int2(fixpoint_uv%d * iindtevcrd%d.xx), 8);\n", n, texcoord, n);
+
+					out.Write("\tif (" I_INDTEXMTX"[%d].w >= 0) indtevtrans%d = irshift(indtevtrans%d, " I_INDTEXMTX"[%d].w);\n", mtxidx, n, n, mtxidx);
+					out.Write("\telse indtevtrans%d = ilshift(indtevtrans%d, -" I_INDTEXMTX"[%d].w);\n", n, n, mtxidx);
+				}
+				else
+				{
+					out.Write("\tint2 indtevtrans%d = int2(fixpoint_uv%d * iindtevcrd%d.xx) >> 8;\n", n, texcoord, n);
+
+					out.Write("\tif (" I_INDTEXMTX"[%d].w >= 0) indtevtrans%d = indtevtrans%d >> " I_INDTEXMTX"[%d].w;\n", mtxidx, n, n, mtxidx);
+					out.Write("\telse indtevtrans%d = indtevtrans%d << (-" I_INDTEXMTX"[%d].w);\n", n, n, mtxidx);
+				}
 			}
 			else if (bpmem.tevind[n].mid <= 11 && bHasTexCoord)
 			{ // t matrix
 				_assert_(bpmem.tevind[n].mid >= 9);
 				int mtxidx = 2*(bpmem.tevind[n].mid-9);
 				out.SetConstantsUsed(C_INDTEXMTX+mtxidx, C_INDTEXMTX+mtxidx);
-				out.Write("\tint2 indtevtrans%d = int2(fixpoint_uv%d * iindtevcrd%d.yy) >> 8;\n", n, texcoord, n);
 
-				out.Write("\tif (" I_INDTEXMTX"[%d].w >= 0) indtevtrans%d = indtevtrans%d >> " I_INDTEXMTX"[%d].w;\n", mtxidx, n, n, mtxidx);
-				out.Write("\telse indtevtrans%d = indtevtrans%d << (-" I_INDTEXMTX"[%d].w);\n", n, n, mtxidx);
+				if (DriverDetails::HasBug(DriverDetails::BUG_BROKENIVECSHIFTS))
+				{
+					out.Write("\tint2 indtevtrans%d = irshift(int2(fixpoint_uv%d * iindtevcrd%d.yy), 8);\n", n, texcoord, n);
+
+					out.Write("\tif (" I_INDTEXMTX"[%d].w >= 0) indtevtrans%d = irshift(indtevtrans%d, " I_INDTEXMTX"[%d].w);\n", mtxidx, n, n, mtxidx);
+					out.Write("\telse indtevtrans%d = ilshift(indtevtrans%d, -" I_INDTEXMTX"[%d].w);\n", n, n, mtxidx);
+				}
+				else
+				{
+					out.Write("\tint2 indtevtrans%d = int2(fixpoint_uv%d * iindtevcrd%d.yy) >> 8;\n", n, texcoord, n);
+
+					out.Write("\tif (" I_INDTEXMTX"[%d].w >= 0) indtevtrans%d = indtevtrans%d >> " I_INDTEXMTX"[%d].w;\n", mtxidx, n, n, mtxidx);
+					out.Write("\telse indtevtrans%d = indtevtrans%d << (-" I_INDTEXMTX"[%d].w);\n", n, n, mtxidx);
+				}
 			}
 			else
 			{
@@ -741,7 +825,10 @@ static inline void WriteStage(T& out, pixel_shader_uid_data* uid_data, int n, AP
 			out.Write("\ttevcoord.xy = wrappedcoord + indtevtrans%d;\n", n);
 
 		// Emulate s24 overflows
-		out.Write("\ttevcoord.xy = (tevcoord.xy << 8) >> 8;\n");
+		if (DriverDetails::HasBug(DriverDetails::BUG_BROKENIVECSHIFTS))
+			out.Write("\ttevcoord.xy = irshift(ilshift(tevcoord.xy, 8), 8);\n");
+		else
+			out.Write("\ttevcoord.xy = (tevcoord.xy << 8) >> 8;\n");
 	}
 
 	TevStageCombiner::ColorCombiner &cc = bpmem.combiners[n].colorC;
@@ -836,9 +923,9 @@ static inline void WriteStage(T& out, pixel_shader_uid_data* uid_data, int n, AP
 		out.SetConstantsUsed(C_COLORS+ac.dest, C_COLORS+ac.dest);
 
 
-	out.Write("\ttevin_a = int4(%s, %s)&255;\n", tevCInputTable[cc.a], tevAInputTable[ac.a]);
-	out.Write("\ttevin_b = int4(%s, %s)&255;\n", tevCInputTable[cc.b], tevAInputTable[ac.b]);
-	out.Write("\ttevin_c = int4(%s, %s)&255;\n", tevCInputTable[cc.c], tevAInputTable[ac.c]);
+	out.Write("\ttevin_a = int4(%s, %s)&int4(255, 255, 255, 255);\n", tevCInputTable[cc.a], tevAInputTable[ac.a]);
+	out.Write("\ttevin_b = int4(%s, %s)&int4(255, 255, 255, 255);\n", tevCInputTable[cc.b], tevAInputTable[ac.b]);
+	out.Write("\ttevin_c = int4(%s, %s)&int4(255, 255, 255, 255);\n", tevCInputTable[cc.c], tevAInputTable[ac.c]);
 	out.Write("\ttevin_d = int4(%s, %s);\n", tevCInputTable[cc.d], tevAInputTable[ac.d]);
 
 	out.Write("\t// color combine\n");
@@ -948,12 +1035,37 @@ static inline void WriteTevRegular(T& out, const char* components, int bias, int
 	// - c is scaled from 0..255 to 0..256, which allows dividing the result by 256 instead of 255
 	// - if scale is bigger than one, it is moved inside the lerp calculation for increased accuracy
 	// - a rounding bias is added before dividing by 256
-	out.Write("(((tevin_d.%s%s)%s)", components, tevBiasTable[bias], tevScaleTableLeft[shift]);
-	out.Write(" %s ", tevOpTable[op]);
-	out.Write("(((((tevin_a.%s<<8) + (tevin_b.%s-tevin_a.%s)*(tevin_c.%s+(tevin_c.%s>>7)))%s)%s)>>8)",
-	          components, components, components, components, components,
-	          tevScaleTableLeft[shift], tevLerpBias[2*op+(shift!=3)]);
-	out.Write(")%s", tevScaleTableRight[shift]);
+
+	if (DriverDetails::HasBug(DriverDetails::BUG_BROKENIVECSHIFTS))
+	{
+		// Haxx - cleaner code by not having irshift and ilshift in the emitted code by omitting them if not used.
+		const char* leftShift = tevScaleTableLeft[shift];
+		const char* rightShift = tevScaleTableRight[shift];
+
+		if (rightShift[0])
+			out.Write("irshift(((tevin_d.%s%s)%s)", components, tevBiasTable[bias], tevScaleTableLeft[shift]);
+		else
+			out.Write("((tevin_d.%s%s)%s)", components, tevBiasTable[bias], tevScaleTableLeft[shift]);
+		out.Write(" %s ", tevOpTable[op]);
+		if (leftShift[0])
+			out.Write("irshift((ilshift((ilshift(tevin_a.%s, 8) + (tevin_b.%s-tevin_a.%s)*(tevin_c.%s+irshift(tevin_c.%s, 7))), %s)%s), 8)",
+					  components, components, components, components, components,
+					  leftShift+4, tevLerpBias[2*op+(shift!=3)]);
+		else
+			out.Write("irshift(((ilshift(tevin_a.%s, 8) + (tevin_b.%s-tevin_a.%s)*(tevin_c.%s+irshift(tevin_c.%s, 7)))%s), 8)",
+					  components, components, components, components, components, tevLerpBias[2*op+(shift!=3)]);
+		if (rightShift[0])
+			out.Write(", %s)", rightShift+4);
+	}
+	else
+	{
+		out.Write("(((tevin_d.%s%s)%s)", components, tevBiasTable[bias], tevScaleTableLeft[shift]);
+		out.Write(" %s ", tevOpTable[op]);
+		out.Write("(((((tevin_a.%s<<8) + (tevin_b.%s-tevin_a.%s)*(tevin_c.%s+(tevin_c.%s>>7)))%s)%s)>>8)",
+				  components, components, components, components, components,
+				  tevScaleTableLeft[shift], tevLerpBias[2*op+(shift!=3)]);
+		out.Write(")%s", tevScaleTableRight[shift]);
+	}
 }
 
 template<class T>
@@ -1026,7 +1138,7 @@ static inline void WriteAlphaTest(T& out, pixel_shader_uid_data* uid_data, API_T
 	if (dstAlphaMode == DSTALPHA_DUAL_SOURCE_BLEND)
 		out.Write("\t\tocol1 = float4(0.0, 0.0, 0.0, 0.0);\n");
 	if (per_pixel_depth)
-		out.Write("\t\tdepth = 1.0;\n");
+		out.Write("\t\tdepth = %s;\n", (ApiType == API_D3D) ? "0.0" : "1.0");
 
 	// ZCOMPLOC HACK:
 	// The only way to emulate alpha test + early-z is to force early-z in the shader.
@@ -1081,13 +1193,13 @@ static inline void WriteFog(T& out, pixel_shader_uid_data* uid_data)
 		// TODO: Verify that we want to drop lower bits here! (currently taken over from software renderer)
 		//       Maybe we want to use "ze = (A << B_SHF)/((B << B_SHF) - Zs)" instead?
 		//       That's equivalent, but keeps the lower bits of Zs.
-		out.Write("\tfloat ze = (" I_FOGF"[1].x * 16777215.0) / float(" I_FOGI".y - (zCoord >> " I_FOGI".w));\n");
+		out.Write("\tfloat ze = (" I_FOGF"[1].x * 16777216.0) / float(" I_FOGI".y - (zCoord >> " I_FOGI".w));\n");
 	}
 	else
 	{
 		// orthographic
 		// ze = a*Zs    (here, no B_SHF)
-		out.Write("\tfloat ze = " I_FOGF"[1].x * float(zCoord) / 16777215.0;\n");
+		out.Write("\tfloat ze = " I_FOGF"[1].x * float(zCoord) / 16777216.0;\n");
 	}
 
 	// x_adjust = sqrt((x-center)^2 + k^2)/k
@@ -1116,31 +1228,11 @@ static inline void WriteFog(T& out, pixel_shader_uid_data* uid_data)
 	}
 
 	out.Write("\tint ifog = iround(fog * 256.0);\n");
-	out.Write("\tprev.rgb = (prev.rgb * (256 - ifog) + " I_FOGCOLOR".rgb * ifog) >> 8;\n");
-}
-
-template<class T>
-static inline void WritePerPixelDepth(T& out, pixel_shader_uid_data* uid_data, API_TYPE ApiType)
-{
-	if (bpmem.genMode.zfreeze)
-	{
-		out.SetConstantsUsed(C_ZSLOPE, C_ZSLOPE);
-		out.SetConstantsUsed(C_EFBSCALE, C_EFBSCALE);
-
-		out.Write("\tfloat2 screenpos = rawpos.xy * " I_EFBSCALE".xy;\n");
-
-		// Opengl has reversed vertical screenspace coordiantes
-		if (ApiType == API_OPENGL)
-			out.Write("\tscreenpos.y = %i - screenpos.y;\n", EFB_HEIGHT);
-
-		out.Write("\tdepth = float(" I_ZSLOPE".z + " I_ZSLOPE".x * screenpos.x + " I_ZSLOPE".y * screenpos.y) / float(0xFFFFFF);\n");
-	}
+	if (DriverDetails::HasBug(DriverDetails::BUG_BROKENIVECSHIFTS))
+		out.Write("\tprev.rgb = irshift((prev.rgb * (256 - ifog) + " I_FOGCOLOR".rgb * ifog), 8);\n");
 	else
-	{
-		out.Write("\tdepth = float(zCoord) / float(0xFFFFFF);\n");
-	}
+		out.Write("\tprev.rgb = (prev.rgb * (256 - ifog) + " I_FOGCOLOR".rgb * ifog) >> 8;\n");
 }
-
 
 void GetPixelShaderUid(PixelShaderUid& object, DSTALPHA_MODE dstAlphaMode, API_TYPE ApiType, u32 components)
 {

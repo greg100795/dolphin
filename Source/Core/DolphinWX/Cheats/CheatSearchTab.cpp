@@ -1,25 +1,23 @@
 // Copyright 2014 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <array>
 #include <wx/button.h>
 #include <wx/choice.h>
-#include <wx/event.h>
 #include <wx/listbox.h>
 #include <wx/panel.h>
 #include <wx/radiobox.h>
 #include <wx/radiobut.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
-#include <wx/string.h>
 #include <wx/textctrl.h>
-#include <wx/window.h>
 
 #include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 #include "Common/StringUtil.h"
 #include "Core/ActionReplay.h"
+#include "Core/Core.h"
 #include "Core/HW/Memmap.h"
 #include "DolphinWX/WxUtils.h"
 #include "DolphinWX/Cheats/CheatSearchTab.h"
@@ -128,7 +126,7 @@ CheatSearchTab::CheatSearchTab(wxWindow* const parent)
 void CheatSearchTab::StartNewSearch(wxCommandEvent& WXUNUSED(event))
 {
 	const u8* const memptr = Memory::m_pRAM;
-	if (memptr == nullptr)
+	if (!Core::IsRunningAndStarted())
 	{
 		WxUtils::ShowErrorDialog(_("A game is not currently running."));
 		return;
@@ -160,7 +158,7 @@ void CheatSearchTab::StartNewSearch(wxCommandEvent& WXUNUSED(event))
 void CheatSearchTab::FilterCheatSearchResults(wxCommandEvent&)
 {
 	const u8* const memptr = Memory::m_pRAM;
-	if (memptr == nullptr)
+	if (!Core::IsRunningAndStarted())
 	{
 		WxUtils::ShowErrorDialog(_("A game is not currently running."));
 		return;

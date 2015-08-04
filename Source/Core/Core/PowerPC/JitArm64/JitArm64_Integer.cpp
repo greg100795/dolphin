@@ -1,5 +1,5 @@
 // Copyright 2014 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Common/Arm64Emitter.h"
@@ -281,6 +281,25 @@ void JitArm64::addx(UGeckoInstruction inst)
 		gpr.SetImmediate(d, i + j);
 		if (inst.Rc)
 			ComputeRC(gpr.GetImm(d), 0);
+	}
+	else if (gpr.IsImm(a) || gpr.IsImm(b))
+	{
+		int imm_reg = gpr.IsImm(a) ? a : b;
+		int in_reg = gpr.IsImm(a) ? b : a;
+		gpr.BindToRegister(d, d == in_reg);
+		if (gpr.GetImm(imm_reg) < 4096)
+		{
+			ADD(gpr.R(d), gpr.R(in_reg), gpr.GetImm(imm_reg));
+		}
+		else
+		{
+			ARM64Reg WA = gpr.GetReg();
+			MOVI2R(WA, gpr.GetImm(imm_reg));
+			ADD(gpr.R(d), gpr.R(in_reg), WA);
+			gpr.Unlock(WA);
+		}
+		if (inst.Rc)
+			ComputeRC(gpr.R(d), 0);
 	}
 	else
 	{
@@ -716,5 +735,129 @@ void JitArm64::addcx(UGeckoInstruction inst)
 		ComputeCarry();
 		if (inst.Rc)
 			ComputeRC(gpr.R(d), 0);
+	}
+}
+
+void JitArm64::slwx(UGeckoInstruction inst)
+{
+	INSTRUCTION_START
+	JITDISABLE(bJITIntegerOff);
+
+	int a = inst.RA, b = inst.RB, s = inst.RS;
+
+	if (gpr.IsImm(b) && gpr.IsImm(s))
+	{
+		u32 i = gpr.GetImm(s), j = gpr.GetImm(b);
+		gpr.SetImmediate(a, (j & 0x20) ? 0 : i << (j & 0x1F));
+
+		if (inst.Rc)
+			ComputeRC(gpr.GetImm(a), 0);
+	}
+	else if (gpr.IsImm(b))
+	{
+		u32 i = gpr.GetImm(b);
+		if (i & 0x20)
+		{
+			gpr.SetImmediate(a, 0);
+			if (inst.Rc)
+				ComputeRC(0, 0);
+		}
+		else
+		{
+			gpr.BindToRegister(a, a == s);
+			LSL(gpr.R(a), gpr.R(s), i & 0x1F);
+			if (inst.Rc)
+				ComputeRC(gpr.R(a), 0);
+		}
+	}
+	else
+	{
+		gpr.BindToRegister(a, a == b || a == s);
+
+		// PowerPC any shift in the 32-63 register range results in zero
+		// Since it has 32bit registers
+		// AArch64 it will use a mask of the register size for determining what shift amount
+		// So if we use a 64bit so the bits will end up in the high 32bits, and
+		// Later instructions will just eat high 32bits since it'll run 32bit operations for everything.
+		LSLV(EncodeRegTo64(gpr.R(a)), EncodeRegTo64(gpr.R(s)), EncodeRegTo64(gpr.R(b)));
+
+		if (inst.Rc)
+			ComputeRC(gpr.R(a), 0);
+	}
+}
+
+void JitArm64::rlwimix(UGeckoInstruction inst)
+{
+	INSTRUCTION_START
+	JITDISABLE(bJITIntegerOff);
+
+	int a = inst.RA, s = inst.RS;
+	u32 mask = Helper_Mask(inst.MB, inst.ME);
+
+	if (gpr.IsImm(a) && gpr.IsImm(s))
+	{
+		u32 res = (gpr.GetImm(a) & ~mask) | (_rotl(gpr.GetImm(s), inst.SH) & mask);
+		gpr.SetImmediate(a, res);
+		if (inst.Rc)
+			ComputeRC(res, 0);
+	}
+	else
+	{
+		if (mask == 0 || (a == s && inst.SH == 0))
+		{
+			// Do Nothing
+		}
+		else if (mask == 0xFFFFFFFF)
+		{
+			if (inst.SH || a != s)
+				gpr.BindToRegister(a, a == s);
+
+			if (inst.SH)
+				ROR(gpr.R(a), gpr.R(s), 32 - inst.SH);
+			else if (a != s)
+				MOV(gpr.R(a), gpr.R(s));
+		}
+		else if (inst.SH == 0 && inst.MB <= inst.ME)
+		{
+			// No rotation
+			// No mask inversion
+			u32 lsb = 31 - inst.ME;
+			u32 width = inst.ME - inst.MB + 1;
+
+			gpr.BindToRegister(a, true);
+			ARM64Reg WA = gpr.GetReg();
+			UBFX(WA, gpr.R(s), lsb, width);
+			BFI(gpr.R(a), WA, lsb, width);
+			gpr.Unlock(WA);
+		}
+		else if (inst.SH && inst.MB <= inst.ME)
+		{
+			// No mask inversion
+			u32 lsb = 31 - inst.ME;
+			u32 width = inst.ME - inst.MB + 1;
+
+			gpr.BindToRegister(a, true);
+			ARM64Reg WA = gpr.GetReg();
+			ROR(WA, gpr.R(s), 32 - inst.SH);
+			UBFX(WA, WA, lsb, width);
+			BFI(gpr.R(a), WA, lsb, width);
+			gpr.Unlock(WA);
+		}
+		else
+		{
+			gpr.BindToRegister(a, true);
+			ARM64Reg WA = gpr.GetReg();
+			ARM64Reg WB = gpr.GetReg();
+
+			MOVI2R(WA, mask);
+			BIC(WB, gpr.R(a), WA);
+			AND(WA, WA, gpr.R(s), ArithOption(gpr.R(s), ST_ROR, 32 - inst.SH));
+			ORR(gpr.R(a), WB, WA);
+
+			gpr.Unlock(WA, WB);
+		}
+
+		if (inst.Rc)
+			ComputeRC(gpr.R(a), 0);
 	}
 }

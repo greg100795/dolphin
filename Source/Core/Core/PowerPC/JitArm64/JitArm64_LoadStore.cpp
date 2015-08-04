@@ -1,5 +1,5 @@
 // Copyright 2014 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Common/Arm64Emitter.h"
@@ -17,15 +17,6 @@
 #include "Core/PowerPC/JitArm64/JitAsm.h"
 
 using namespace Arm64Gen;
-
-void JitArm64::icbi(UGeckoInstruction inst)
-{
-	gpr.Flush(FlushMode::FLUSH_ALL);
-	fpr.Flush(FlushMode::FLUSH_ALL);
-
-	FallBackToInterpreter(inst);
-	WriteExit(js.compilerPC + 4);
-}
 
 void JitArm64::SafeLoadToReg(u32 dest, s32 addr, s32 offsetReg, u32 flags, s32 offset, bool update)
 {
@@ -172,8 +163,8 @@ void JitArm64::SafeLoadToReg(u32 dest, s32 addr, s32 offsetReg, u32 flags, s32 o
 		ABI_PushRegisters(regs_in_use);
 		m_float_emit.ABI_PushRegisters(fprs_in_use, X30);
 		EmitBackpatchRoutine(this, flags,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
+			jo.fastmem,
+			jo.fastmem,
 			dest_reg, XA);
 		m_float_emit.ABI_PopRegisters(fprs_in_use, X30);
 		ABI_PopRegisters(regs_in_use);
@@ -323,8 +314,8 @@ void JitArm64::SafeStoreFromReg(s32 dest, u32 value, s32 regOffset, u32 flags, s
 		ABI_PushRegisters(regs_in_use);
 		m_float_emit.ABI_PushRegisters(fprs_in_use, X30);
 		EmitBackpatchRoutine(this, flags,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
-			SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem,
+			jo.fastmem,
+			jo.fastmem,
 			RS, XA);
 		m_float_emit.ABI_PopRegisters(fprs_in_use, X30);
 		ABI_PopRegisters(regs_in_use);
@@ -410,15 +401,19 @@ void JitArm64::lXX(UGeckoInstruction inst)
 	SafeLoadToReg(d, update ? a : (a ? a : -1), offsetReg, flags, offset, update);
 
 	// LWZ idle skipping
-	if (SConfig::GetInstance().m_LocalCoreStartupParameter.bSkipIdle &&
+	if (SConfig::GetInstance().bSkipIdle &&
 	    inst.OPCD == 32 &&
 	    (inst.hex & 0xFFFF0000) == 0x800D0000 &&
 	    (PowerPC::HostRead_U32(js.compilerPC + 4) == 0x28000000 ||
-	    (SConfig::GetInstance().m_LocalCoreStartupParameter.bWii && PowerPC::HostRead_U32(js.compilerPC + 4) == 0x2C000000)) &&
+	    (SConfig::GetInstance().bWii && PowerPC::HostRead_U32(js.compilerPC + 4) == 0x2C000000)) &&
 	    PowerPC::HostRead_U32(js.compilerPC + 8) == 0x4182fff8)
 	{
 		// if it's still 0, we can wait until the next event
 		FixupBranch noIdle = CBNZ(gpr.R(d));
+
+		FixupBranch far = B();
+		SwitchToFarCode();
+		SetJumpTarget(far);
 
 		gpr.Flush(FLUSH_MAINTAIN_STATE);
 		fpr.Flush(FLUSH_MAINTAIN_STATE);
@@ -426,11 +421,13 @@ void JitArm64::lXX(UGeckoInstruction inst)
 		ARM64Reg WA = gpr.GetReg();
 		ARM64Reg XA = EncodeRegTo64(WA);
 
-		MOVI2R(XA, (u64)&PowerPC::OnIdle);
+		MOVI2R(XA, (u64)&CoreTiming::Idle);
 		BLR(XA);
 
 		gpr.Unlock(WA);
 		WriteExceptionExit();
+
+		SwitchToNearCode();
 
 		SetJumpTarget(noIdle);
 
@@ -514,4 +511,115 @@ void JitArm64::stX(UGeckoInstruction inst)
 		}
 		gpr.Unlock(WA);
 	}
+}
+
+void JitArm64::lmw(UGeckoInstruction inst)
+{
+	INSTRUCTION_START
+	JITDISABLE(bJITLoadStoreOff);
+	FALLBACK_IF(!jo.fastmem);
+
+	u32 a = inst.RA;
+
+	ARM64Reg WA = gpr.GetReg();
+	ARM64Reg XA = EncodeRegTo64(WA);
+	if (a)
+	{
+		bool add = inst.SIMM_16 >= 0;
+		u16 off = std::abs(inst.SIMM_16);
+		if (off < 4096)
+		{
+			if (add)
+				ADD(WA, gpr.R(a), off);
+			else
+				SUB(WA, gpr.R(a), off);
+		}
+		else
+		{
+			u16 remaining = off >> 12;
+			if (add)
+			{
+				ADD(WA, WA, remaining, true);
+				ADD(WA, gpr.R(a), off & 0xFFF);
+			}
+			else
+			{
+				SUB(WA, WA, remaining, true);
+				SUB(WA, gpr.R(a), off & 0xFFF);
+			}
+		}
+	}
+	else
+	{
+		MOVI2R(WA, (u32)(s32)(s16)inst.SIMM_16);
+	}
+
+	u8* base = UReg_MSR(MSR).DR ? Memory::logical_base : Memory::physical_base;
+	MOVK(XA, ((u64)base >> 32) & 0xFFFF, SHIFT_32);
+
+	for (int i = inst.RD; i < 32; i++)
+	{
+		gpr.BindToRegister(i, false);
+		ARM64Reg RX = gpr.R(i);
+		LDR(INDEX_UNSIGNED, RX, XA, (i - inst.RD) * 4);
+		REV32(RX, RX);
+	}
+
+	gpr.Unlock(WA);
+}
+
+void JitArm64::stmw(UGeckoInstruction inst)
+{
+	INSTRUCTION_START
+	JITDISABLE(bJITLoadStoreOff);
+	FALLBACK_IF(!jo.fastmem);
+
+	u32 a = inst.RA;
+
+	ARM64Reg WA = gpr.GetReg();
+	ARM64Reg XA = EncodeRegTo64(WA);
+	ARM64Reg WB = gpr.GetReg();
+
+	if (a)
+	{
+		bool add = inst.SIMM_16 >= 0;
+		u16 off = std::abs(inst.SIMM_16);
+		if (off < 4096)
+		{
+			if (add)
+				ADD(WA, gpr.R(a), off);
+			else
+				SUB(WA, gpr.R(a), off);
+		}
+		else
+		{
+			u16 remaining = off >> 12;
+			if (add)
+			{
+				ADD(WA, WA, remaining, true);
+				ADD(WA, gpr.R(a), off & 0xFFF);
+			}
+			else
+			{
+				SUB(WA, WA, remaining, true);
+				SUB(WA, gpr.R(a), off & 0xFFF);
+			}
+		}
+	}
+	else
+	{
+		MOVI2R(WA, (u32)(s32)(s16)inst.SIMM_16);
+	}
+
+	u8* base = UReg_MSR(MSR).DR ? Memory::logical_base : Memory::physical_base;
+	MOVK(XA, ((u64)base >> 32) & 0xFFFF, SHIFT_32);
+
+	for (int i = inst.RD; i < 32; i++)
+	{
+		ARM64Reg RX = gpr.R(i);
+		REV32(WB, RX);
+		STR(INDEX_UNSIGNED, WB, XA, (i - inst.RD) * 4);
+	}
+
+	gpr.Unlock(WA, WB);
 }

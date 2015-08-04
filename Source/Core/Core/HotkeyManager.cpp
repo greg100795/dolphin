@@ -1,16 +1,18 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2015 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include <string>
+#include <vector>
+
 #include "Core/ConfigManager.h"
-#include "Core/CoreParameter.h"
 #include "Core/HotkeyManager.h"
 
 const std::string hotkey_labels[] =
 {
-	(""), // Open
-	(""), // Change Disc
-	(""), // Refresh List
+	_trans("Open"),
+	_trans("Change Disc"),
+	_trans("Refresh List"),
 
 	_trans("Toggle Pause"),
 	_trans("Stop"),
@@ -24,7 +26,7 @@ const std::string hotkey_labels[] =
 
 	_trans("Toggle Fullscreen"),
 	_trans("Take Screenshot"),
-	(""), // Exit
+	_trans("Exit"),
 
 	_trans("Connect Wiimote 1"),
 	_trans("Connect Wiimote 2"),
@@ -36,7 +38,9 @@ const std::string hotkey_labels[] =
 	_trans("Volume Up"),
 	_trans("Volume Toggle Mute"),
 
-	_trans("Toggle IR"),
+	_trans("Increase IR"),
+	_trans("Decrease IR"),
+
 	_trans("Toggle Aspect Ratio"),
 	_trans("Toggle EFB Copies"),
 	_trans("Toggle Fog"),
@@ -104,6 +108,8 @@ const std::string hotkey_labels[] =
 	_trans("Load State Last 6"),
 	_trans("Load State Last 7"),
 	_trans("Load State Last 8"),
+	_trans("Load State Last 9"),
+	_trans("Load State Last 10"),
 
 	_trans("Save Oldest State"),
 	_trans("Undo Load State"),
@@ -111,13 +117,12 @@ const std::string hotkey_labels[] =
 	_trans("Save State"),
 	_trans("Load State"),
 };
-
-const int num_hotkeys = (sizeof(hotkey_labels) / sizeof(hotkey_labels[0]));
+static_assert(NUM_HOTKEYS == sizeof(hotkey_labels) / sizeof(hotkey_labels[0]), "Wrong count of hotkey_labels");
 
 namespace HotkeyManagerEmu
 {
 
-static u32 s_hotkeyDown[3];
+static u32 s_hotkeyDown[(NUM_HOTKEYS + 31) / 32];
 static HotkeyStatus s_hotkey;
 static bool s_enabled;
 
@@ -152,16 +157,14 @@ bool IsPressed(int Id, bool held)
 	unsigned int setKey = Id % 32;
 	if (s_hotkey.button[set] & (1 << setKey))
 	{
+		bool pressed = !!(s_hotkeyDown[set] & (1 << setKey));
 		s_hotkeyDown[set] |= (1 << setKey);
-		if (held)
+		if (!pressed || held)
 			return true;
 	}
 	else
 	{
-		bool pressed = !!(s_hotkeyDown[set] & (1 << setKey));
 		s_hotkeyDown[set] &= ~(1 << setKey);
-		if (pressed)
-			return true;
 	}
 
 	return false;
@@ -177,8 +180,8 @@ void Initialize(void* const hwnd)
 	// load the saved controller config
 	s_config.LoadConfig(true);
 
-	for (unsigned int i = 0; i < 3; ++i)
-		s_hotkeyDown[i] = 0;
+	for (u32& key : s_hotkeyDown)
+		key = 0;
 
 	s_enabled = true;
 }
@@ -204,19 +207,14 @@ void Shutdown()
 
 HotkeyManager::HotkeyManager()
 {
-	for (int set = 0; set < 3; set++)
+	for (int key = 0; key < NUM_HOTKEYS; key++)
 	{
-		// buttons
-		if ((set * 32) < num_hotkeys)
+		int set = key / 32;
+
+		if (key % 32 == 0)
 			groups.emplace_back(m_keys[set] = new Buttons(_trans("Keys")));
 
-		for (int key = 0; key < 32; key++)
-		{
-			if ((set * 32 + key) < num_hotkeys && hotkey_labels[set * 32 + key].length() != 0)
-			{
-				m_keys[set]->controls.emplace_back(new ControlGroup::Input(hotkey_labels[set * 32 + key]));
-			}
-		}
+		m_keys[set]->controls.emplace_back(new ControlGroup::Input(hotkey_labels[key]));
 	}
 
 	groups.emplace_back(m_options = new ControlGroup(_trans("Options")));
@@ -235,30 +233,75 @@ std::string HotkeyManager::GetName() const
 
 void HotkeyManager::GetInput(HotkeyStatus* const kb)
 {
-	for (int set = 0; set < 3; set++)
+	for (int set = 0; set < (NUM_HOTKEYS + 31) / 32; set++)
 	{
 		std::vector<u32> bitmasks;
-		for (int key = 0; key < 32; key++)
-		{
-			if ((set * 32 + key) < num_hotkeys && hotkey_labels[set * 32 + key].length() != 0)
-				bitmasks.push_back(1 << key);
-		}
+		for (int key = 0; key < std::min(32, NUM_HOTKEYS - set * 32); key++)
+			bitmasks.push_back(1 << key);
 
-		if ((set * 32) < num_hotkeys)
-		{
-			kb->button[set] = 0;
-			m_keys[set]->GetState(&kb->button[set], bitmasks.data());
-		}
+		kb->button[set] = 0;
+		m_keys[set]->GetState(&kb->button[set], bitmasks.data());
 	}
 }
 
 void HotkeyManager::LoadDefaults(const ControllerInterface& ciface)
 {
-	for (int set = 0; set < 3; set++)
+	ControllerEmu::LoadDefaults(ciface);
+
+#ifdef _WIN32
+	const std::string NON = "(!(LMENU | RMENU) & !(LSHIFT | RSHIFT) & !(LCONTROL | RCONTROL))";
+	const std::string ALT = "((LMENU | RMENU) & !(LSHIFT | RSHIFT) & !(LCONTROL | RCONTROL))";
+	const std::string SHIFT = "(!(LMENU | RMENU) & (LSHIFT | RSHIFT) & !(LCONTROL | RCONTROL))";
+	const std::string CTRL = "(!(LMENU | RMENU) & !(LSHIFT | RSHIFT) & (LCONTROL | RCONTROL))";
+#else
+	const std::string NON = "(!`Alt_L` & !(`Shift_L` | `Shift_R`) & !(`Control_L` | `Control_R` ))";
+	const std::string ALT = "(`Alt_L` & !(`Shift_L` | `Shift_R`) & !(`Control_L` | `Control_R` ))";
+	const std::string SHIFT = "(!`Alt_L` & (`Shift_L` | `Shift_R`) & !(`Control_L` | `Control_R` ))";
+	const std::string CTRL = "(!`Alt_L` & !(`Shift_L` | `Shift_R`) & (`Control_L` | `Control_R` ))";
+#endif
+
+	#define set_control(num, str)  (m_keys[(num) / 32])->controls[(num) % 32]->control_ref->expression = (str)
+
+	// General hotkeys
+	set_control(HK_OPEN, CTRL + " & O");
+	set_control(HK_PLAY_PAUSE, "`F10`");
+#ifdef _WIN32
+	set_control(HK_STOP, "ESCAPE");
+	set_control(HK_FULLSCREEN, ALT + " & RETURN");
+#else
+	set_control(HK_STOP, "Escape");
+	set_control(HK_FULLSCREEN, ALT + " & Return");
+#endif
+	set_control(HK_SCREENSHOT, NON + " & `F9`");
+	set_control(HK_WIIMOTE1_CONNECT, ALT + " & `F5`");
+	set_control(HK_WIIMOTE2_CONNECT, ALT + " & `F6`");
+	set_control(HK_WIIMOTE3_CONNECT, ALT + " & `F7`");
+	set_control(HK_WIIMOTE4_CONNECT, ALT + " & `F8`");
+	set_control(HK_BALANCEBOARD_CONNECT, ALT + " & `F9`");
+#ifdef _WIN32
+	set_control(HK_TOGGLE_THROTTLE, "TAB");
+#else
+	set_control(HK_TOGGLE_THROTTLE, "Tab");
+#endif
+
+	// Freelook
+	set_control(HK_FREELOOK_DECREASE_SPEED, SHIFT + " & `1`");
+	set_control(HK_FREELOOK_INCREASE_SPEED, SHIFT + " & `2`");
+	set_control(HK_FREELOOK_RESET_SPEED, SHIFT + " & F");
+	set_control(HK_FREELOOK_UP, SHIFT + " & E");
+	set_control(HK_FREELOOK_DOWN, SHIFT + " & Q");
+	set_control(HK_FREELOOK_LEFT, SHIFT + " & A");
+	set_control(HK_FREELOOK_RIGHT, SHIFT + " & D");
+	set_control(HK_FREELOOK_ZOOM_IN, SHIFT + " & W");
+	set_control(HK_FREELOOK_ZOOM_OUT, SHIFT + " & S");
+	set_control(HK_FREELOOK_RESET, SHIFT + " & R");
+
+	// Savestates
+	for (int i = 0; i < 8; i++)
 	{
-		for (unsigned int key = 0; key < (m_keys[set])->controls.size(); key++)
-		{
-			(m_keys[set])->controls[key]->control_ref->expression = "";
-		}
+		set_control(HK_LOAD_STATE_SLOT_1 + i, StringFromFormat((NON + " & `F%d`").c_str(), i + 1));
+		set_control(HK_SAVE_STATE_SLOT_1 + i, StringFromFormat((SHIFT + " & `F%d`").c_str(), i + 1));
 	}
+	set_control(HK_UNDO_LOAD_STATE, NON + " & `F12`");
+	set_control(HK_UNDO_SAVE_STATE, SHIFT + " & `F12`");
 }

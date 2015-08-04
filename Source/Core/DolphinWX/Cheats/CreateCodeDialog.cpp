@@ -1,15 +1,12 @@
 // Copyright 2014 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <wx/checkbox.h>
 #include <wx/dialog.h>
-#include <wx/event.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
-#include <wx/string.h>
 #include <wx/textctrl.h>
-#include <wx/window.h>
 
 #include "Core/ActionReplay.h"
 #include "Core/ConfigManager.h"

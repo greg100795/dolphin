@@ -1,8 +1,9 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cinttypes>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -127,7 +128,7 @@ int RegisterEvent(const std::string& name, TimedCallback callback)
 void UnregisterAllEvents()
 {
 	if (first)
-		PanicAlertT("Cannot unregister events with events pending");
+		PanicAlert("Cannot unregister events with events pending");
 	event_types.clear();
 }
 
@@ -225,6 +226,12 @@ u64 GetIdleTicks()
 void ScheduleEvent_Threadsafe(int cyclesIntoFuture, int event_type, u64 userdata)
 {
 	_assert_msg_(POWERPC, !Core::IsCPUThread(), "ScheduleEvent_Threadsafe from wrong thread");
+	if (Core::g_want_determinism)
+	{
+		ERROR_LOG(POWERPC, "Someone scheduled an off-thread \"%s\" event while netplay or movie play/record "
+		                   "was active.  This is likely to cause a desync.",
+		                   event_types[event_type].name.c_str());
+	}
 	std::lock_guard<std::mutex> lk(tsWriteLock);
 	Event ne;
 	ne.time = globalTimer + cyclesIntoFuture;
@@ -236,6 +243,7 @@ void ScheduleEvent_Threadsafe(int cyclesIntoFuture, int event_type, u64 userdata
 // Executes an event immediately, then returns.
 void ScheduleEvent_Immediate(int event_type, u64 userdata)
 {
+	_assert_msg_(POWERPC, Core::IsCPUThread(), "ScheduleEvent_Immediate from wrong thread");
 	event_types[event_type].callback(userdata, 0);
 }
 
@@ -474,13 +482,13 @@ void Idle()
 {
 	//DEBUG_LOG(POWERPC, "Idle");
 
-	if (SConfig::GetInstance().m_LocalCoreStartupParameter.bSyncGPUOnSkipIdleHack)
+	if (SConfig::GetInstance().bSyncGPUOnSkipIdleHack)
 	{
 		//When the FIFO is processing data we must not advance because in this way
 		//the VI will be desynchronized. So, We are waiting until the FIFO finish and
 		//while we process only the events required by the FIFO.
 		ProcessFifoWaitEvents();
-		g_video_backend->Video_Sync();
+		g_video_backend->Video_Sync(0);
 	}
 
 	idledCycles += DowncountToCycles(PowerPC::ppcState.downcount);

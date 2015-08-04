@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2011 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Core/HW/Memmap.h"
@@ -253,7 +253,12 @@ ID3D11PixelShader* PSTextureEncoder::SetStaticShader(unsigned int dstFormat, PEC
 		HRESULT hr = D3D::device->CreatePixelShader(bytecode->Data(), bytecode->Size(), nullptr, &newShader);
 		CHECK(SUCCEEDED(hr), "create efb encoder pixel shader");
 
-		it = m_staticShaders.insert(std::make_pair(key, newShader)).first;
+		char debugName[255] = {};
+		sprintf_s(debugName, "efb encoder pixel shader (dst:%d, src:%d, intensity:%d, scale:%d)",
+			dstFormat, srcFormat, isIntensity, scaleByHalf);
+		D3D::SetDebugObjectName(newShader, debugName);
+
+		it = m_staticShaders.emplace(key, newShader).first;
 		bytecode->Release();
 	}
 

@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <string>
@@ -167,11 +167,6 @@ void PPCDebugInterface::ToggleMemCheck(unsigned int address)
 void PPCDebugInterface::InsertBLR(unsigned int address, unsigned int value)
 {
 	PowerPC::HostWrite_U32(value, address);
-}
-
-void PPCDebugInterface::BreakNow()
-{
-	CCPU::Break();
 }
 
 

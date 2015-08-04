@@ -1,22 +1,17 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2011 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
 
 #include <cstddef>
 #include <vector>
-#include <wx/defs.h>
 #include <wx/dialog.h>
-#include <wx/string.h>
 
 #include "Common/CommonTypes.h"
 
 class wxButton;
 class wxCheckBox;
-class wxCommandEvent;
-class wxEvent;
-class wxEvtHandler;
 class wxListBox;
 class wxNotebook;
 class wxPaintEvent;
@@ -25,7 +20,6 @@ class wxSpinCtrl;
 class wxSpinEvent;
 class wxStaticText;
 class wxTextCtrl;
-class wxWindow;
 
 class FifoPlayerDlg : public wxDialog
 {

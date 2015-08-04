@@ -1,18 +1,21 @@
 // Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
 
+#include <vector>
 #include "Common/CommonTypes.h"
-#include "Common/CommonTypes.h"
-
 #include "Core/HW/EXI_Device.h"
 
 struct NetSettings
 {
 	bool m_CPUthread;
 	int m_CPUcore;
+	int m_SelectedLanguage;
+	bool m_OverrideGCLanguage;
+	bool m_ProgressiveScan;
+	bool m_PAL60;
 	bool m_DSPHLE;
 	bool m_DSPEnableJIT;
 	bool m_WriteToMemcard;
@@ -30,7 +33,7 @@ struct Rpt : public std::vector<u8>
 
 typedef std::vector<u8> NetWiimote;
 
-#define NETPLAY_VERSION  "Dolphin NetPlay 2014-01-08"
+#define NETPLAY_VERSION  "Dolphin NetPlay 2015-06-24"
 
 extern u64 g_netplay_initial_gctime;
 
@@ -54,12 +57,17 @@ enum
 	NP_MSG_STOP_GAME = 0xA2,
 	NP_MSG_DISABLE_GAME = 0xA3,
 
+	NP_MSG_TIMEBASE = 0xB0,
+	NP_MSG_DESYNC_DETECTED = 0xB1,
+
 	NP_MSG_READY = 0xD0,
 	NP_MSG_NOT_READY = 0xD1,
 
 	NP_MSG_PING = 0xE0,
 	NP_MSG_PONG = 0xE1,
 	NP_MSG_PLAYER_PING_DATA = 0xE2,
+
+	NP_MSG_SYNC_GC_SRAM = 0xF0,
 };
 
 typedef u8  MessageId;

@@ -1,8 +1,9 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2011 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <algorithm>
+#include <mutex>
 
 #include "Common/CommonTypes.h"
 #include "Core/ConfigManager.h"
@@ -162,7 +163,7 @@ FifoPlayer::FifoPlayer() :
 	m_FrameWrittenCb(nullptr),
 	m_File(nullptr)
 {
-	m_Loop = SConfig::GetInstance().m_LocalCoreStartupParameter.bLoopFifoReplay;
+	m_Loop = SConfig::GetInstance().bLoopFifoReplay;
 }
 
 void FifoPlayer::WriteFrame(const FifoFrameInfo &frame, const AnalyzedFrameInfo &info)

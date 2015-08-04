@@ -1,14 +1,10 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2014 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include <wx/chartype.h>
 #include <wx/colour.h>
-#include <wx/defs.h>
 #include <wx/grid.h>
 #include <wx/menu.h>
-#include <wx/string.h>
-#include <wx/windowid.h>
 
 #include "Common/GekkoDisassembler.h"
 #include "Core/HW/Memmap.h"
@@ -25,7 +21,7 @@
 
 enum
 {
-	IDM_DELETEWATCH,
+	IDM_DELETEWATCH = 1,
 	IDM_ADDMEMCHECK,
 	IDM_VIEWMEMORY,
 };
@@ -98,7 +94,7 @@ static wxString GetValueByRowCol(int row, int col)
 			case 0: return wxString::Format("%s", GetWatchName(row));
 			case 1: return wxString::Format("%08x", GetWatchAddr(row));
 			case 2: return wxString::Format("%08x", GetWatchValue(row));
-			case 3: return wxString::Format("%lu", GetWatchValue(row));
+			case 3: return wxString::Format("%u", GetWatchValue(row));
 			case 4:
 			{
 				u32 addr = GetWatchAddr(row);

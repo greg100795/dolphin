@@ -1,10 +1,9 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2010 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
 
-#include <map>
 #include <string>
 #include <vector>
 
@@ -37,7 +36,7 @@ namespace Gecko
 		bool enabled;
 		bool user_defined;
 
-		bool Compare(GeckoCode compare) const;
+		bool Compare(const GeckoCode& compare) const;
 		bool Exist(u32 address, u32 data) const;
 	};
 

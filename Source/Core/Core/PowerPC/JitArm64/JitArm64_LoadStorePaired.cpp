@@ -1,5 +1,5 @@
-// Copyright 2014 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2015 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Common/Arm64Emitter.h"
@@ -20,7 +20,7 @@ void JitArm64::psq_l(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
 	JITDISABLE(bJITLoadStorePairedOff);
-	FALLBACK_IF(js.memcheck || !SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem);
+	FALLBACK_IF(jo.memcheck || !jo.fastmem);
 
 	// X30 is LR
 	// X0 contains the scale
@@ -68,7 +68,7 @@ void JitArm64::psq_l(UGeckoInstruction inst)
 
 	fpr.BindToRegister(inst.RS, false);
 	ARM64Reg VS = fpr.R(inst.RS);
-	m_float_emit.FCVTL(64, EncodeRegToDouble(VS), D0);
+	m_float_emit.FCVTL(64, VS, D0);
 	if (inst.W)
 	{
 		m_float_emit.FMOV(D0, 0x70); // 1.0 as a Double
@@ -83,7 +83,7 @@ void JitArm64::psq_st(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
 	JITDISABLE(bJITLoadStorePairedOff);
-	FALLBACK_IF(js.memcheck || !SConfig::GetInstance().m_LocalCoreStartupParameter.bFastmem);
+	FALLBACK_IF(jo.memcheck || !jo.fastmem);
 
 	// X30 is LR
 	// X0 contains the scale
@@ -156,7 +156,7 @@ void JitArm64::psq_st(UGeckoInstruction inst)
 		m_float_emit.ABI_PushRegisters(fprs_in_use, X30);
 		BLR(EncodeRegTo64(type_reg));
 		m_float_emit.ABI_PopRegisters(fprs_in_use, X30);
-		ABI_PushRegisters(gprs_in_use);
+		ABI_PopRegisters(gprs_in_use);
 
 		SetJumpTarget(continue1);
 	}

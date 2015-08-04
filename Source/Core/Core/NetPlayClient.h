@@ -1,18 +1,18 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2010 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
 
+#include <atomic>
 #include <map>
+#include <mutex>
 #include <queue>
 #include <sstream>
+#include <thread>
 #include <SFML/Network/Packet.hpp>
 #include "Common/CommonTypes.h"
-#include "Common/ENetUtil.h"
 #include "Common/FifoQueue.h"
-#include "Common/Thread.h"
-#include "Common/Timer.h"
 #include "Common/TraversalClient.h"
 #include "Core/NetPlayProto.h"
 #include "InputCommon/GCPadStatus.h"
@@ -50,7 +50,7 @@ public:
 	void ThreadFunc();
 	void SendAsync(sf::Packet* packet);
 
-	NetPlayClient(const std::string& address, const u16 port, NetPlayUI* dialog, const std::string& name, bool traversal, std::string centralServer, u16 centralPort);
+	NetPlayClient(const std::string& address, const u16 port, NetPlayUI* dialog, const std::string& name, bool traversal, const std::string& centralServer, u16 centralPort);
 	~NetPlayClient();
 
 	void GetPlayerList(std::string& list, std::vector<int>& pid_list);
@@ -76,6 +76,8 @@ public:
 	u8 InGamePadToLocalPad(u8 localPad);
 
 	u8 LocalWiimoteToInGameWiimote(u8 local_pad);
+
+	static void SendTimeBase();
 
 	enum State
 	{
@@ -109,9 +111,9 @@ protected:
 	ENetPeer*    m_server;
 	std::thread  m_thread;
 
-	std::string   m_selected_game;
-	volatile bool m_is_running;
-	volatile bool m_do_loop;
+	std::string       m_selected_game;
+	std::atomic<bool> m_is_running;
+	std::atomic<bool> m_do_loop;
 
 	unsigned int  m_target_buffer_size;
 
@@ -141,6 +143,8 @@ private:
 	std::string m_player_name;
 	bool m_connecting;
 	TraversalClient* m_traversal_client;
+
+	u32 m_timebase_frame;
 };
 
 void NetPlay_Enable(NetPlayClient* const np);

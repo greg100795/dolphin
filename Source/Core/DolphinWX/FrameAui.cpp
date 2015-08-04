@@ -1,31 +1,20 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2009 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cstddef>
 #include <string>
 #include <vector>
-#include <wx/chartype.h>
-#include <wx/defs.h>
-#include <wx/dynarray.h>
-#include <wx/event.h>
 #include <wx/frame.h>
-#include <wx/gdicmn.h>
 #include <wx/list.h>
 #include <wx/menu.h>
-#include <wx/menuitem.h>
 #include <wx/msgdlg.h>
-#include <wx/object.h>
 #include <wx/panel.h>
 #include <wx/rtti.h>
 #include <wx/sizer.h>
 #include <wx/statusbr.h>
-#include <wx/string.h>
 #include <wx/textdlg.h>
 #include <wx/toplevel.h>
-#include <wx/translation.h>
-#include <wx/window.h>
-#include <wx/windowid.h>
 #include <wx/aui/auibar.h>
 #include <wx/aui/auibook.h>
 #include <wx/aui/framemanager.h>

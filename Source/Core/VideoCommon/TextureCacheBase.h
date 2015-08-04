@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2010 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #pragma once
@@ -53,6 +53,7 @@ public:
 		u32 format;
 		bool is_efb_copy;
 		bool is_custom_tex;
+		u32 copyMipMapStrideChannels;
 
 		unsigned int native_width, native_height; // Texture dimensions from the GameCube's point of view
 		unsigned int native_levels;
@@ -60,6 +61,8 @@ public:
 		// used to delete textures which haven't been used for TEXTURE_KILL_THRESHOLD frames
 		int frameCount;
 
+		// Keep an iterator to the entry in textures_by_hash, so it does not need to be searched when removing the cache entry
+		std::multimap<u64, TCacheEntryBase*>::iterator textures_by_hash_iter;
 
 		void SetGeneralParameters(u32 _addr, u32 _size, u32 _format)
 		{
@@ -85,6 +88,11 @@ public:
 
 		virtual void Bind(unsigned int stage) = 0;
 		virtual bool Save(const std::string& filename, unsigned int level) = 0;
+
+		virtual void CopyRectangleFromTexture(
+			const TCacheEntryBase* source,
+			const MathUtil::Rectangle<int> &srcrect,
+			const MathUtil::Rectangle<int> &dstrect) = 0;
 
 		virtual void Load(unsigned int width, unsigned int height,
 			unsigned int expanded_width, unsigned int level) = 0;
@@ -131,18 +139,19 @@ protected:
 	static size_t temp_size;
 
 private:
+	typedef std::multimap<u64, TCacheEntryBase*> TexCache;
+	typedef std::unordered_multimap<TCacheEntryConfig, TCacheEntryBase*, TCacheEntryConfig::Hasher> TexPool;
+	static TCacheEntryBase* DoPartialTextureUpdates(TexCache::iterator iter);
 	static void DumpTexture(TCacheEntryBase* entry, std::string basename, unsigned int level);
 	static void CheckTempSize(size_t required_size);
 
 	static TCacheEntryBase* AllocateTexture(const TCacheEntryConfig& config);
-	static void FreeTexture(TCacheEntryBase* entry);
+	static TexCache::iterator FreeTexture(TexCache::iterator t_iter);
 
 	static TCacheEntryBase* ReturnEntry(unsigned int stage, TCacheEntryBase* entry);
 
-	typedef std::multimap<u32, TCacheEntryBase*> TexCache;
-	typedef std::unordered_multimap<TCacheEntryConfig, TCacheEntryBase*, TCacheEntryConfig::Hasher> TexPool;
-
-	static TexCache textures;
+	static TexCache textures_by_address;
+	static TexCache textures_by_hash;
 	static TexPool texture_pool;
 	static TCacheEntryBase* bound_textures[8];
 
@@ -153,6 +162,7 @@ private:
 		bool s_texfmt_overlay;
 		bool s_texfmt_overlay_center;
 		bool s_hires_textures;
+		bool s_cache_hires_textures;
 		bool s_copy_cache_enable;
 		bool s_stereo_3d;
 		bool s_efb_mono_depth;

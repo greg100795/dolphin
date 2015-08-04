@@ -1,9 +1,9 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2015 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include "Core/Host.h"
 #include "Core/HW/GCKeyboardEmu.h"
+#include "InputCommon/KeyboardStatus.h"
 
 static const u16 keys0_bitmasks[] =
 {

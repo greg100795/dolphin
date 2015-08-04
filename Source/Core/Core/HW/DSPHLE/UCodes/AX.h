@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 // High-level emulation for the AX GameCube UCode.
@@ -55,9 +55,9 @@ public:
 	AXUCode(DSPHLE* dsphle, u32 crc);
 	virtual ~AXUCode();
 
-	virtual void HandleMail(u32 mail) override;
-	virtual void Update() override;
-	virtual void DoState(PointerWrap& p) override;
+	void HandleMail(u32 mail) override;
+	void Update() override;
+	void DoState(PointerWrap& p) override;
 	u32 GetUpdateMs() override;
 
 protected:

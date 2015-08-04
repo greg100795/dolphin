@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2010 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cinttypes>
@@ -8,6 +8,7 @@
 #include <strsafe.h>
 #include <unordered_map>
 
+#include "Common/MathUtil.h"
 #include "Common/Timer.h"
 
 #include "Core/ConfigManager.h"
@@ -258,7 +259,7 @@ Renderer::Renderer(void *&window_handle)
 	// Clear EFB textures
 	float ClearColor[4] = { 0.f, 0.f, 0.f, 1.f };
 	D3D::context->ClearRenderTargetView(FramebufferManager::GetEFBColorTexture()->GetRTV(), ClearColor);
-	D3D::context->ClearDepthStencilView(FramebufferManager::GetEFBDepthTexture()->GetDSV(), D3D11_CLEAR_DEPTH, 1.f, 0);
+	D3D::context->ClearDepthStencilView(FramebufferManager::GetEFBDepthTexture()->GetDSV(), D3D11_CLEAR_DEPTH, 0.f, 0);
 
 	D3D11_VIEWPORT vp = CD3D11_VIEWPORT(0.f, 0.f, (float)s_target_width, (float)s_target_height);
 	D3D::context->RSSetViewports(1, &vp);
@@ -350,15 +351,6 @@ u32 Renderer::AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data)
 	D3D11_MAPPED_SUBRESOURCE map;
 	ID3D11Texture2D* read_tex;
 
-	if (type == POKE_Z)
-	{
-		static bool alert_only_once = true;
-		if (!alert_only_once) return 0;
-		PanicAlert("EFB: Poke Z not implemented (tried to poke z value %#x at (%d,%d))", poke_data, x, y);
-		alert_only_once = false;
-		return 0;
-	}
-
 	// Convert EFB dimensions to the ones of our render target
 	EFBRectangle efbPixelRc;
 	efbPixelRc.left = x;
@@ -414,20 +406,20 @@ u32 Renderer::AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data)
 		// read the data from system memory
 		D3D::context->Map(read_tex, 0, D3D11_MAP_READ, 0, &map);
 
-		float val = *(float*)map.pData;
+		// depth buffer is inverted in the d3d backend
+		float val = 1.0f - *(float*)map.pData;
 		u32 ret = 0;
 		if (bpmem.zcontrol.pixel_format == PEControl::RGB565_Z16)
 		{
 			// if Z is in 16 bit format you must return a 16 bit integer
-			ret = ((u32)(val * 0xffff));
+			ret = MathUtil::Clamp<u32>((u32)(val * 65536.0f), 0, 0xFFFF);
 		}
 		else
 		{
-			ret = ((u32)(val * 0xffffff));
+			ret = MathUtil::Clamp<u32>((u32)(val * 16777216.0f), 0, 0xFFFFFF);
 		}
 		D3D::context->Unmap(read_tex, 0);
 
-		// TODO: in RE0 this value is often off by one in Video_DX9 (where this code is derived from), which causes lighting to disappear
 		return ret;
 	}
 	else if (type == PEEK_COLOR)
@@ -464,22 +456,53 @@ u32 Renderer::AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data)
 		else if (alpha_read_mode.ReadMode == 1) return (ret | 0xFF000000); // GX_READ_FF
 		else /*if(alpha_read_mode.ReadMode == 0)*/ return (ret & 0x00FFFFFF); // GX_READ_00
 	}
-	else //if(type == POKE_COLOR)
+	else if (type == POKE_COLOR)
 	{
 		u32 rgbaColor = (poke_data & 0xFF00FF00) | ((poke_data >> 16) & 0xFF) | ((poke_data << 16) & 0xFF0000);
 
 		// TODO: The first five PE registers may change behavior of EFB pokes, this isn't implemented, yet.
 		ResetAPIState();
 
+		D3D11_VIEWPORT vp = CD3D11_VIEWPORT(0.0f, 0.0f, (float)GetTargetWidth(), (float)GetTargetHeight());
+		D3D::context->RSSetViewports(1, &vp);
+
 		D3D::context->OMSetRenderTargets(1, &FramebufferManager::GetEFBColorTexture()->GetRTV(), nullptr);
-		D3D::drawColorQuad(rgbaColor, (float)RectToLock.left   * 2.f / (float)Renderer::GetTargetWidth()  - 1.f,
-		                            - (float)RectToLock.top    * 2.f / (float)Renderer::GetTargetHeight() + 1.f,
-		                              (float)RectToLock.right  * 2.f / (float)Renderer::GetTargetWidth()  - 1.f,
-		                            - (float)RectToLock.bottom * 2.f / (float)Renderer::GetTargetHeight() + 1.f);
+		D3D::drawColorQuad(rgbaColor, 0.f,
+		                  (float)RectToLock.left   * 2.f / GetTargetWidth()  - 1.f,
+		                - (float)RectToLock.top    * 2.f / GetTargetHeight() + 1.f,
+		                  (float)RectToLock.right  * 2.f / GetTargetWidth()  - 1.f,
+		                - (float)RectToLock.bottom * 2.f / GetTargetHeight() + 1.f);
 
 		RestoreAPIState();
-		return 0;
 	}
+	else // if (type == POKE_Z)
+	{
+		// TODO: The first five PE registers may change behavior of EFB pokes, this isn't implemented, yet.
+		ResetAPIState();
+
+		D3D::stateman->PushBlendState(clearblendstates[3]);
+		D3D::stateman->PushDepthState(cleardepthstates[1]);
+
+		D3D11_VIEWPORT vp = CD3D11_VIEWPORT(0.0f, 0.0f, (float)GetTargetWidth(), (float)GetTargetHeight(),
+			1.0f - MathUtil::Clamp<float>(xfmem.viewport.farZ, 0.0f, 16777215.0f) / 16777216.0f,
+			1.0f - MathUtil::Clamp<float>((xfmem.viewport.farZ - MathUtil::Clamp<float>(xfmem.viewport.zRange, 0.0f, 16777215.0f)), 0.0f, 16777215.0f) / 16777216.0f);
+		D3D::context->RSSetViewports(1, &vp);
+
+		D3D::context->OMSetRenderTargets(1, &FramebufferManager::GetEFBColorTexture()->GetRTV(),
+			FramebufferManager::GetEFBDepthTexture()->GetDSV());
+		D3D::drawColorQuad(0, 1.0f - float(poke_data & 0xFFFFFF) / 16777216.0f,
+		                  (float)RectToLock.left   * 2.f / GetTargetWidth()  - 1.f,
+		                - (float)RectToLock.top    * 2.f / GetTargetHeight() + 1.f,
+		                  (float)RectToLock.right  * 2.f / GetTargetWidth()  - 1.f,
+		                - (float)RectToLock.bottom * 2.f / GetTargetHeight() + 1.f);
+
+		D3D::stateman->PopDepthState();
+		D3D::stateman->PopBlendState();
+
+		RestoreAPIState();
+	}
+
+	return 0;
 }
 
 
@@ -522,8 +545,8 @@ void Renderer::SetViewport()
 	Ht = (Y + Ht <= GetTargetHeight()) ? Ht : (GetTargetHeight() - Y);
 
 	D3D11_VIEWPORT vp = CD3D11_VIEWPORT(X, Y, Wd, Ht,
-		std::max(0.0f, std::min(1.0f, (xfmem.viewport.farZ - xfmem.viewport.zRange) / 16777216.0f)),
-		std::max(0.0f, std::min(1.0f, xfmem.viewport.farZ / 16777216.0f)));
+		1.0f - MathUtil::Clamp<float>(xfmem.viewport.farZ, 0.0f, 16777215.0f) / 16777216.0f,
+		1.0f - MathUtil::Clamp<float>((xfmem.viewport.farZ - MathUtil::Clamp<float>(xfmem.viewport.zRange, 0.0f, 16777215.0f)), 0.0f, 16777215.0f) / 16777216.0f);
 	D3D::context->RSSetViewports(1, &vp);
 }
 
@@ -548,7 +571,7 @@ void Renderer::ClearScreen(const EFBRectangle& rc, bool colorEnable, bool alphaE
 
 	// Color is passed in bgra mode so we need to convert it to rgba
 	u32 rgbaColor = (color & 0xFF00FF00) | ((color >> 16) & 0xFF) | ((color << 16) & 0xFF0000);
-	D3D::drawClearQuad(rgbaColor, (z & 0xFFFFFF) / float(0xFFFFFF));
+	D3D::drawClearQuad(rgbaColor, 1.0f - (z & 0xFFFFFF) / 16777216.0f);
 
 	D3D::stateman->PopDepthState();
 	D3D::stateman->PopBlendState();
@@ -865,7 +888,7 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 
 	const bool windowResized = CheckForResize();
 	const bool fullscreen = g_ActiveConfig.bFullscreen && !g_ActiveConfig.bBorderlessFullscreen &&
-		!SConfig::GetInstance().m_LocalCoreStartupParameter.bRenderToMain;
+		!SConfig::GetInstance().bRenderToMain;
 
 	bool xfbchanged = s_last_xfb_mode != g_ActiveConfig.bUseRealXFB;
 
@@ -906,7 +929,8 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 	}
 
 	// Resize the back buffers NOW to avoid flickering
-	if (xfbchanged ||
+	if (CalculateTargetSize(s_backbuffer_width, s_backbuffer_height) ||
+		xfbchanged ||
 		windowResized ||
 		fullscreen_changed ||
 		s_last_efb_scale != g_ActiveConfig.iEFBScale ||
@@ -946,7 +970,6 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 
 		s_last_efb_scale = g_ActiveConfig.iEFBScale;
 		s_last_stereo_mode = g_ActiveConfig.iStereoMode > 0;
-		CalculateTargetSize(s_backbuffer_width, s_backbuffer_height);
 
 		PixelShaderManager::SetEfbScaleChanged();
 
@@ -956,7 +979,7 @@ void Renderer::SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, co
 		g_framebuffer_manager = new FramebufferManager;
 		float clear_col[4] = { 0.f, 0.f, 0.f, 1.f };
 		D3D::context->ClearRenderTargetView(FramebufferManager::GetEFBColorTexture()->GetRTV(), clear_col);
-		D3D::context->ClearDepthStencilView(FramebufferManager::GetEFBDepthTexture()->GetDSV(), D3D11_CLEAR_DEPTH, 1.f, 0);
+		D3D::context->ClearDepthStencilView(FramebufferManager::GetEFBDepthTexture()->GetDSV(), D3D11_CLEAR_DEPTH, 0.f, 0);
 	}
 
 	// begin next frame
@@ -994,7 +1017,7 @@ void Renderer::ApplyState(bool bUseDstAlpha)
 	for (unsigned int stage = 0; stage < 8; stage++)
 	{
 		// TODO: cache SamplerState directly, not d3d object
-		gx_state.sampler[stage].max_anisotropy = g_ActiveConfig.iMaxAnisotropy;
+		gx_state.sampler[stage].max_anisotropy = 1 << g_ActiveConfig.iMaxAnisotropy;
 		D3D::stateman->SetSampler(stage, gx_state_cache.Get(gx_state.sampler[stage]));
 	}
 

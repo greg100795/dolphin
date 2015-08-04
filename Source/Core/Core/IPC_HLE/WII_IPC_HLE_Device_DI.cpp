@@ -1,19 +1,18 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include <cinttypes>
 #include <memory>
 
+#include "Common/ChunkFile.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/LogManager.h"
-
 #include "Core/ConfigManager.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/DVDInterface.h"
 #include "Core/HW/Memmap.h"
 #include "Core/HW/SystemTimers.h"
-
 #include "Core/IPC_HLE/WII_IPC_HLE.h"
 #include "Core/IPC_HLE/WII_IPC_HLE_Device_DI.h"
 
@@ -116,7 +115,7 @@ void CWII_IPC_HLE_Device_di::FinishIOCtl(DVDInterface::DIInterruptType interrupt
 {
 	if (m_commands_to_execute.empty())
 	{
-		PanicAlertT("WII_IPC_HLE_Device_DI tried to reply to non-existing command");
+		PanicAlert("WII_IPC_HLE_Device_DI: There is no command to execute!");
 		return;
 	}
 

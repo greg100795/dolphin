@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 
@@ -25,10 +25,10 @@
 
 enum AspectMode
 {
-	ASPECT_AUTO       = 0,
-	ASPECT_FORCE_16_9 = 1,
-	ASPECT_FORCE_4_3  = 2,
-	ASPECT_STRETCH    = 3,
+	ASPECT_AUTO        = 0,
+	ASPECT_ANALOG_WIDE = 1,
+	ASPECT_ANALOG      = 2,
+	ASPECT_STRETCH     = 3,
 };
 
 enum EFBScale
@@ -40,8 +40,6 @@ enum EFBScale
 	SCALE_1_5X,
 	SCALE_2X,
 	SCALE_2_5X,
-	SCALE_3X,
-	SCALE_4X,
 };
 
 enum StereoMode
@@ -104,6 +102,7 @@ struct VideoConfig final
 	bool bDumpTextures;
 	bool bHiresTextures;
 	bool bConvertHiresTextures;
+	bool bCacheHiresTextures;
 	bool bDumpEFBTarget;
 	bool bUseFFV1;
 	bool bFreeLook;
@@ -112,6 +111,7 @@ struct VideoConfig final
 	// Hacks
 	bool bEFBAccessEnable;
 	bool bPerfQueriesEnable;
+	bool bBBoxEnable;
 
 	bool bEFBEmulateFormatChanges;
 	bool bSkipEFBCopyToRam;
@@ -159,6 +159,8 @@ struct VideoConfig final
 		bool bSupportsGSInstancing; // Needed by GeometryShaderGen, so must stay in VideoCommon
 		bool bSupportsPostProcessing;
 		bool bSupportsPaletteConversion;
+		bool bSupportsClipControl; // Needed by VertexShaderGen, so must stay in VideoCommon
+		bool bSupportsCopySubImage; // Needed for partial texture updates
 	} backend_info;
 
 	// Utility

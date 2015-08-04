@@ -1,5 +1,5 @@
-// Copyright 2013 Dolphin Emulator Project
-// Licensed under GPLv2
+// Copyright 2008 Dolphin Emulator Project
+// Licensed under GPLv2+
 // Refer to the license.txt file included.
 
 #include "Common/CommonTypes.h"
@@ -348,8 +348,7 @@ void Jit64::mfspr(UGeckoInstruction inst)
 void Jit64::mtmsr(UGeckoInstruction inst)
 {
 	INSTRUCTION_START
-	// Don't interpret this, if we do we get thrown out
-	//JITDISABLE(bJITSystemRegistersOff);
+	JITDISABLE(bJITSystemRegistersOff);
 	if (!gpr.R(inst.RS).IsImm())
 	{
 		gpr.Lock(inst.RS);
@@ -408,7 +407,7 @@ void Jit64::mfcr(UGeckoInstruction inst)
 	JITDISABLE(bJITSystemRegistersOff);
 	int d = inst.RD;
 	gpr.FlushLockX(RSCRATCH_EXTRA);
-	CALL((void *)asm_routines.mfcr);
+	CALL(asm_routines.mfcr);
 	gpr.Lock(d);
 	gpr.BindToRegister(d, false, true);
 	MOV(32, gpr.R(d), R(RSCRATCH));
